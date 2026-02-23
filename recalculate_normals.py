@@ -61,9 +61,11 @@ def recalculate_normals(xml_file_path):
         # Process each submesh
         submeshes = root.findall('.//submesh')
         total_vertices_processed = 0
+        any_changes_made = False
         
         for submesh_idx, submesh in enumerate(submeshes):
             print(f"  Processing submesh {submesh_idx + 1}...")
+            updated_normals = 0
             
             # Check if it uses shared vertices
             uses_shared = submesh.get('usesharedvertices', 'false').lower() == 'true'
@@ -157,7 +159,7 @@ def recalculate_normals(xml_file_path):
                     print(f"    Warning: Error processing face {face_count}: {e}")
             
             # Normalize vertex normals and update XML
-            updated_normals = 0
+            submesh_changed = False
             for i, vertex in enumerate(vertices):
                 if vertex_face_count[i] > 0:
                     # Average the accumulated normals
@@ -167,10 +169,20 @@ def recalculate_normals(xml_file_path):
                     # Update the normal in XML
                     normal_elem = vertex.find('normal')
                     if normal_elem is not None:
-                        normal_elem.set('x', f"{final_normal.x:.6f}")
-                        normal_elem.set('y', f"{final_normal.y:.6f}")
-                        normal_elem.set('z', f"{final_normal.z:.6f}")
-                        updated_normals += 1
+                        # Check if significantly different (using a small epsilon)
+                        old_x = float(normal_elem.get('x', 0))
+                        old_y = float(normal_elem.get('y', 0))
+                        old_z = float(normal_elem.get('z', 0))
+                        
+                        if (abs(old_x - final_normal.x) > 0.0001 or 
+                            abs(old_y - final_normal.y) > 0.0001 or 
+                            abs(old_z - final_normal.z) > 0.0001):
+                            
+                            normal_elem.set('x', f"{final_normal.x:.6f}")
+                            normal_elem.set('y', f"{final_normal.y:.6f}")
+                            normal_elem.set('z', f"{final_normal.z:.6f}")
+                            updated_normals += 1
+                            submesh_changed = True
                     else:
                         # Create normal element if it doesn't exist
                         normal_elem = ET.SubElement(vertex, 'normal')
@@ -178,21 +190,31 @@ def recalculate_normals(xml_file_path):
                         normal_elem.set('y', f"{final_normal.y:.6f}")
                         normal_elem.set('z', f"{final_normal.z:.6f}")
                         updated_normals += 1
+                        submesh_changed = True
                 else:
                     # Vertex not part of any face, set default normal
                     normal_elem = vertex.find('normal')
                     if normal_elem is not None:
-                        normal_elem.set('x', "0.000000")
-                        normal_elem.set('y', "1.000000")  # Default up vector
-                        normal_elem.set('z', "0.000000")
+                        old_y = float(normal_elem.get('y', 0))
+                        if abs(old_y - 1.0) > 0.0001:
+                            normal_elem.set('x', "0.000000")
+                            normal_elem.set('y', "1.000000")  # Default up vector
+                            normal_elem.set('z', "0.000000")
+                            submesh_changed = True
             
             print(f"    Updated {updated_normals} normals from {face_count} faces")
             total_vertices_processed += updated_normals
+            if submesh_changed:
+                any_changes_made = True
         
-        # Save the modified XML
-        tree.write(xml_file_path, encoding='utf-8', xml_declaration=True)
-        print(f"  Successfully recalculated normals for {total_vertices_processed} vertices")
-        return True
+        # Save the modified XML only if changes were made
+        if any_changes_made:
+            tree.write(xml_file_path, encoding='utf-8', xml_declaration=True)
+            print(f"  Successfully recalculated normals for {total_vertices_processed} vertices")
+            return "CHANGED"
+        else:
+            print("  No changes needed. All normals match calculated values.")
+            return "UNCHANGED"
         
     except ET.ParseError as e:
         print(f"  ERROR: Failed to parse XML file: {e}")
