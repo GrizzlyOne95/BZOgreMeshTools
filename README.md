@@ -2,6 +2,9 @@
 
 Ogre Mesh Tools is a Windows GUI utility for fixing and converting Ogre `.mesh` / `.xml` files. It wraps the core Ogre tools with a Battlezone-inspired interface and a clean, single-button workflow.
 
+<img width="902" height="732" alt="image" src="https://github.com/user-attachments/assets/2664b9f7-be3d-490a-a8ef-bd472eebcb12" />
+
+
 ## What It Can Do
 
 - Recalculate normals to fix bad lighting on legacy meshes.
