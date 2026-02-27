@@ -61,6 +61,13 @@ class OgreMeshToolsGUI(ctk.CTk):
         self.title("OGRE MESH TOOLS")
         self.geometry("1200x850")
         
+        # --- ICON ---
+        self.icon_path = get_resource_path("icon.ico")
+        if os.path.exists(self.icon_path):
+            try:
+                self.iconbitmap(self.icon_path)
+            except: pass
+        
         # --- THEME & COLORS ---
         self.colors = {
             "bg": "#0a0a0a",

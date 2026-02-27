@@ -83,6 +83,7 @@ datas = [
     # customtkinter assets (images, themes)
     (CTK_PKG, "customtkinter"),
     # Project data files
+    ("icon.ico",               "."),
     ("BZONE.ttf",              "."),
     ("BZBase.material",        "."),
     ("MeshToObj.py",           "."),
@@ -158,7 +159,7 @@ exe = EXE(
     runtime_tmpdir=None,
     console=False,     # windowed — no console popup
     disable_windowed_traceback=False,
-    icon=None,
+    icon="icon.ico",
 )
 # No COLLECT step — everything is inside the single EXE
 
