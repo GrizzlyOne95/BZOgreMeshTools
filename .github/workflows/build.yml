@@ -13,22 +13,16 @@ permissions:
 
 jobs:
   build:
-    name: Build for ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: windows-latest
-            binary_name: OgreMeshTools_Windows
-            artifact_name: OgreMeshTools_Windows.exe
+    name: Build Windows EXE
+    runs-on: windows-latest
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Python
+    - name: Set up Python 3.10
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: '3.10'
         cache: 'pip'
 
     - name: Install dependencies
@@ -37,25 +31,15 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
 
-    - name: Build with PyInstaller (Windows)
-      if: matrix.os == 'windows-latest'
+    - name: Build with PyInstaller
       run: |
-        python -m PyInstaller --noconfirm --onefile --windowed --name "${{ matrix.binary_name }}" `
-          --add-data "OgreXMLConverter.exe;." `
-          --add-data "OgreMain.dll;." `
-          --add-data "zlib.dll;." `
-          --add-data "BZONE.ttf;." `
-          --add-data "MeshToObj.py;." `
-          --add-data "batch_ogre_to_gltf.py;." `
-          --add-data "OgreImport.py;." `
-          --add-data "recalculate_normals.py;." `
-          ogre_mesh_tools_gui.py
+        python -m PyInstaller OgreMeshTools.spec --noconfirm
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.binary_name }}
-        path: dist/${{ matrix.artifact_name }}
+        name: OgreMeshTools_Windows
+        path: dist/OgreMeshTools_Windows.exe
 
   release:
     name: Create Release

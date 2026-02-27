@@ -1,0 +1,16 @@
+# PyInstaller build artifacts
+dist/
+build/
+*.spec.bak
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Ogre logs
+*.log
+
+# Temp debug scripts
+_check_*.py
+_test_*.py
+_*.txt
