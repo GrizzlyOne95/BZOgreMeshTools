@@ -11,6 +11,9 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 import argparse
 
+# Hide console window on Windows
+CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
+
 class OgreXMLConverter:
     """Handles batch conversion of Ogre binary files to XML using OgreXMLConverter"""
     
@@ -32,7 +35,7 @@ class OgreXMLConverter:
             try:
                 # On Windows, 'where' is used; on Unix, 'which'
                 cmd = ['where' if os.name == 'nt' else 'which', name]
-                result = subprocess.run(cmd, capture_output=True, text=True)
+                result = subprocess.run(cmd, capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
                 if result.returncode == 0:
                     return result.stdout.strip().splitlines()[0]
             except Exception:
@@ -59,25 +62,30 @@ class OgreXMLConverter:
                 cmd = [self.converter, str(input_path), '-d', str(output_dir)]
             
             print(f"Running: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            print(f"✓ Converted {input_path.name} to XML")
-            print(f"  Output should be at: {xml_output}")
+            # Don't use check=True because OgreXMLConverter returns non-zero for skeleton warnings
+            result = subprocess.run(cmd, capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
             
-            # Check if file was actually created
+            # Check if file was actually created regardless of return code
             if Path(xml_output).exists():
+                print(f"✓ Converted {input_path.name} to XML")
                 return xml_output
+            
+            # Try alternative naming
+            alt_xml = str(output_path.with_suffix('')) + '.xml'
+            if Path(alt_xml).exists():
+                print(f"✓ Converted {input_path.name} to XML")
+                return alt_xml
+
+            if result.returncode != 0:
+                print(f"✗ Failed to convert {input_path.name}")
+                print(f"  stdout: {result.stdout}")
+                print(f"  stderr: {result.stderr}")
             else:
-                # Try alternative naming
-                alt_xml = str(output_path.with_suffix('')) + '.xml'
-                if Path(alt_xml).exists():
-                    return alt_xml
                 print(f"  Warning: Expected XML file not found at {xml_output}")
-                return None
+            return None
                 
-        except subprocess.CalledProcessError as e:
-            print(f"✗ Failed to convert {input_path.name}")
-            print(f"  stdout: {e.stdout}")
-            print(f"  stderr: {e.stderr}")
+        except Exception as e:
+            print(f"✗ Error during XML conversion of {input_path.name}: {e}")
             return None
         except FileNotFoundError:
             print(f"✗ OgreXMLConverter not found at: {self.converter}")
@@ -464,9 +472,24 @@ Examples:
             shutil.rmtree(xml_dir)
             print(f"\n✓ Cleaned up temporary XML files")
         
-    else:
         # Single file mode
         print(f"\n=== Converting to XML ===")
+        
+        # If output is a directory, generate the filename
+        output_path = Path(args.output)
+        if output_path.is_dir() or args.output.endswith('/') or args.output.endswith('\\'):
+            output_path.mkdir(parents=True, exist_ok=True)
+            input_path = Path(args.input)
+            # Create the final .obj path inside the directory
+            obj_name = input_path.name.replace('.mesh.xml', '.obj').replace('.mesh', '.obj').replace('.xml', '.obj')
+            if not obj_name.endswith('.obj'):
+                obj_name += '.obj'
+            target_obj = output_path / obj_name
+        else:
+            # Assume it's a specific file path
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            target_obj = output_path
+            
         xml_file = xml_converter.convert_to_xml(args.input)
         
         if xml_file:
@@ -475,7 +498,7 @@ Examples:
             
             try:
                 converter = OgreXMLToOBJ()
-                converter.convert(xml_file, args.output, create_mtl=not args.no_mtl)
+                converter.convert(xml_file, target_obj, create_mtl=not args.no_mtl)
             except Exception as e:
                 print(f"✗ Error during conversion: {e}")
                 import traceback
