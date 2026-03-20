@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Ogre Mesh/Skeleton to OBJ Converter
-Converts Ogre .mesh/.skeleton files to OBJ format via XML intermediate
+Ogre Mesh to OBJ Converter
+Converts Ogre .mesh files to OBJ format via XML intermediate
 """
 
 import os
@@ -13,6 +13,17 @@ import argparse
 
 # Hide console window on Windows
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
+
+
+def obj_output_name(source_name):
+    lower_name = source_name.lower()
+    if lower_name.endswith(".mesh.xml"):
+        return source_name[:-9] + ".obj"
+    if lower_name.endswith(".mesh"):
+        return source_name[:-5] + ".obj"
+    if lower_name.endswith(".xml"):
+        return source_name[:-4] + ".obj"
+    return source_name + ".obj"
 
 class OgreXMLConverter:
     """Handles batch conversion of Ogre binary files to XML using OgreXMLConverter"""
@@ -48,6 +59,7 @@ class OgreXMLConverter:
         input_path = Path(input_file)
         
         if output_dir:
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
             output_path = Path(output_dir) / input_path.name
         else:
             output_path = input_path
@@ -84,15 +96,15 @@ class OgreXMLConverter:
                 print(f"  Warning: Expected XML file not found at {xml_output}")
             return None
                 
-        except Exception as e:
-            print(f"✗ Error during XML conversion of {input_path.name}: {e}")
-            return None
         except FileNotFoundError:
             print(f"✗ OgreXMLConverter not found at: {self.converter}")
             print(f"  Please specify path with --ogre-tools")
             return None
+        except Exception as e:
+            print(f"✗ Error during XML conversion of {input_path.name}: {e}")
+            return None
     
-    def batch_convert(self, input_dir, output_dir=None, extensions=['.mesh', '.skeleton']):
+    def batch_convert(self, input_dir, output_dir=None, extensions=(".mesh",)):
         """Convert all Ogre files in a directory"""
         input_path = Path(input_dir)
         converted_files = []
@@ -101,8 +113,12 @@ class OgreXMLConverter:
             Path(output_dir).mkdir(parents=True, exist_ok=True)
         
         for ext in extensions:
-            for file in input_path.glob(f'*{ext}'):
-                xml_file = self.convert_to_xml(file, output_dir)
+            for file in input_path.rglob(f'*{ext}'):
+                xml_output_dir = None
+                if output_dir:
+                    rel_parent = file.parent.relative_to(input_path)
+                    xml_output_dir = Path(output_dir) / rel_parent
+                xml_file = self.convert_to_xml(file, xml_output_dir)
                 if xml_file:
                     converted_files.append(xml_file)
         
@@ -331,7 +347,7 @@ class OgreXMLToOBJ:
                         f.write(f"f {face[0]} {face[1]} {face[2]}\n")
                 f.write("\n")
     
-    def write_mtl(self, output_file):
+    def write_mtl(self, output_file, texture_search_roots=None):
         """Write MTL file and auto-wire textures by recursively searching all subfolders.
 
         Searches for textures matching base OBJ name with suffixes:
@@ -341,7 +357,10 @@ class OgreXMLToOBJ:
 
         out_path = Path(output_file)
         base_name = out_path.stem  # e.g. 'cvapc'
-        root_dir = Path.cwd()      # start from working directory
+        root_dirs = []
+        for root in texture_search_roots or [Path.cwd()]:
+            root_path = Path(root)
+            root_dirs.append(root_path.parent if root_path.is_file() else root_path)
 
         # Suffix → MTL map type
         suffix_to_map = {
@@ -355,10 +374,12 @@ class OgreXMLToOBJ:
 
         # Recursive search for textures
         def find_tex(suffix: str):
-            for ext in exts:
-                # Walk all subdirectories looking for matching filename
-                for path in root_dir.rglob(f"{base_name}{suffix}{ext}"):
-                    return os.path.relpath(path, out_path.parent)
+            for root_dir in root_dirs:
+                if not root_dir.exists():
+                    continue
+                for ext in exts:
+                    for path in root_dir.rglob(f"{base_name}{suffix}{ext}"):
+                        return os.path.relpath(path, out_path.parent)
             return None
 
         found_textures = {suffix: find_tex(suffix) for suffix in suffix_to_map.keys()}
@@ -384,14 +405,14 @@ class OgreXMLToOBJ:
                 f.write("\n")
 
     
-    def convert(self, xml_file, obj_file, create_mtl=True):
+    def convert(self, xml_file, obj_file, create_mtl=True, texture_search_roots=None):
         """Main conversion method"""
         self.parse_mesh_xml(xml_file)
         
         mtl_file = None
         if create_mtl and self.submeshes:
             mtl_file = Path(obj_file).with_suffix('.mtl')
-            self.write_mtl(mtl_file)
+            self.write_mtl(mtl_file, texture_search_roots=texture_search_roots)
         
         self.write_obj(obj_file, mtl_file)
         print(f"✓ Converted {Path(xml_file).name} to {Path(obj_file).name}")
@@ -399,7 +420,7 @@ class OgreXMLToOBJ:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Convert Ogre mesh/skeleton files to OBJ format',
+        description='Convert Ogre mesh files to OBJ format',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -414,7 +435,7 @@ Examples:
         """
     )
     
-    parser.add_argument('input', help='Input .mesh file or directory (with --batch)')
+    parser.add_argument('input', help='Input .mesh/.xml file or directory (with --batch)')
     parser.add_argument('-o', '--output', required=True, help='Output .obj file or directory')
     parser.add_argument('--batch', action='store_true', help='Batch process directory')
     parser.add_argument('--ogre-tools', help='Path to Ogre command line tools')
@@ -423,74 +444,91 @@ Examples:
     
     args = parser.parse_args()
     
+    input_path = Path(args.input)
+    had_errors = False
+
+    if args.batch and not input_path.is_dir():
+        print("✗ Batch mode requires an input directory")
+        return 1
+    if not args.batch and input_path.is_dir():
+        print("✗ Single-file mode requires an input file")
+        return 1
+
     # Initialize converter
     xml_converter = OgreXMLConverter(args.ogre_tools)
     
     if args.batch:
-        # Batch mode
+        import shutil
+
         output_dir = Path(args.output)
         output_dir.mkdir(parents=True, exist_ok=True)
         
         xml_dir = output_dir / 'xml_temp'
-        xml_dir.mkdir(exist_ok=True)
+        xml_dir.mkdir(parents=True, exist_ok=True)
         
         print(f"\n=== Converting Ogre files to XML ===")
         xml_files = xml_converter.batch_convert(args.input, xml_dir)
         print(f"XML conversion returned {len(xml_files)} files")
         
-        # Also scan the directory to see what's actually there
-        actual_xml_files = list(xml_dir.glob('*.xml'))
+        actual_xml_files = list(xml_dir.rglob('*.xml'))
         print(f"Actually found {len(actual_xml_files)} XML files in {xml_dir}")
         for xf in actual_xml_files:
-            print(f"  - {xf.name}")
+            print(f"  - {xf.relative_to(xml_dir)}")
         
-        # Use the files we actually found
         if not xml_files and actual_xml_files:
             print("Using files found by scanning directory...")
             xml_files = [str(f) for f in actual_xml_files]
         
+        if not xml_files:
+            print("✗ No XML files were produced from the input directory")
+            return 1
+
         print(f"\n=== Converting XML to OBJ ===")
         print(f"Processing {len(xml_files)} XML files")
         
         for xml_file in xml_files:
             xml_path = Path(xml_file)
-            print(f"Processing: {xml_path.name}")
+            print(f"Processing: {xml_path.relative_to(xml_dir)}")
             
-            # Handle both .mesh.xml and .xml naming
             if xml_path.suffix == '.xml':
-                obj_name = xml_path.name.replace('.mesh.xml', '.obj').replace('.xml', '.obj')
-                obj_file = output_dir / obj_name
+                rel_xml = xml_path.relative_to(xml_dir)
+                obj_rel = rel_xml.with_name(obj_output_name(rel_xml.name))
+                obj_file = output_dir / obj_rel
+                obj_file.parent.mkdir(parents=True, exist_ok=True)
                 
                 try:
                     converter = OgreXMLToOBJ()
-                    converter.convert(xml_file, obj_file, create_mtl=not args.no_mtl)
+                    converter.convert(
+                        xml_file,
+                        obj_file,
+                        create_mtl=not args.no_mtl,
+                        texture_search_roots=[args.input],
+                    )
                 except Exception as e:
-                    print(f"✗ Error converting {xml_path.name}: {e}")
+                    had_errors = True
+                    print(f"✗ Error converting {rel_xml}: {e}")
         
         if not args.keep_xml:
-            import shutil
             shutil.rmtree(xml_dir)
             print(f"\n✓ Cleaned up temporary XML files")
-        
-        # Single file mode
+    else:
         print(f"\n=== Converting to XML ===")
         
-        # If output is a directory, generate the filename
         output_path = Path(args.output)
         if output_path.is_dir() or args.output.endswith('/') or args.output.endswith('\\'):
             output_path.mkdir(parents=True, exist_ok=True)
             input_path = Path(args.input)
-            # Create the final .obj path inside the directory
-            obj_name = input_path.name.replace('.mesh.xml', '.obj').replace('.mesh', '.obj').replace('.xml', '.obj')
-            if not obj_name.endswith('.obj'):
-                obj_name += '.obj'
-            target_obj = output_path / obj_name
+            target_obj = output_path / obj_output_name(input_path.name)
         else:
-            # Assume it's a specific file path
             output_path.parent.mkdir(parents=True, exist_ok=True)
             target_obj = output_path
             
-        xml_file = xml_converter.convert_to_xml(args.input)
+        cleanup_xml = False
+        if args.input.lower().endswith('.xml'):
+            xml_file = args.input
+        else:
+            xml_file = xml_converter.convert_to_xml(args.input)
+            cleanup_xml = True
         
         if xml_file:
             print(f"\n=== Converting XML to OBJ ===")
@@ -498,20 +536,28 @@ Examples:
             
             try:
                 converter = OgreXMLToOBJ()
-                converter.convert(xml_file, target_obj, create_mtl=not args.no_mtl)
+                converter.convert(
+                    xml_file,
+                    target_obj,
+                    create_mtl=not args.no_mtl,
+                    texture_search_roots=[Path(args.input).parent],
+                )
             except Exception as e:
+                had_errors = True
                 print(f"✗ Error during conversion: {e}")
                 import traceback
                 traceback.print_exc()
             
-            if not args.keep_xml:
+            if cleanup_xml and not args.keep_xml and os.path.exists(xml_file):
                 os.remove(xml_file)
                 print(f"✓ Cleaned up temporary XML file")
         else:
             print("✗ Failed to create XML file")
+            return 1
     
     print("\n✓ Conversion complete!")
+    return 1 if had_errors else 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

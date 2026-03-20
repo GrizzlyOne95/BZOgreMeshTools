@@ -11,19 +11,20 @@ Ogre Mesh Tools is a Windows GUI utility for fixing and converting Ogre `.mesh` 
 - Recalculate normals to fix bad lighting on legacy meshes.
 - Convert Ogre meshes to OBJ (static mesh export).
 - Convert Ogre meshes to glTF (`.glb`) using Blender (supports rigs/animations).
-- Process a single file or batch-convert entire folders.
-- Write outputs into `OBJ_Export` and `glTF_Export` directories next to your input.
+- Process a single file or recursively batch-convert entire folders.
+- Preserve relative subfolders during batch export.
+- Write outputs into `OBJ_Export` and `glTF_Export` directories next to your input unless you choose another output folder.
 
 ## How To Use
 
 1. Launch `ogre_mesh_tools_gui.py` (or the Windows release executable).
-2. Choose a single `.mesh`/`.xml` file or enable `BATCH DIRECTORY MODE` and select a folder.
+2. Choose a single `.mesh` or `.xml` file, or enable `BATCH DIRECTORY MODE` and select a folder.
 3. Select the operations you want: `RECALCULATE NORMALS`, `CONVERT TO OBJ`, `CONVERT TO glTF`.
-4. `RECALCULATE NORMALS` uses XML conversion internally.
-5. `CONVERT TO OBJ` outputs a standalone static mesh.
-6. `CONVERT TO glTF` requires Blender for import and export.
+4. `RECALCULATE NORMALS` uses XML conversion internally and writes the updated mesh back when the input is binary `.mesh`.
+5. `CONVERT TO OBJ` supports single-file `.mesh` or `.xml` input and writes `.obj` plus `.mtl`.
+6. `CONVERT TO glTF` requires Blender and single-file mode expects a `.mesh` input.
 7. If using glTF, set your Blender path in `SETTINGS`.
-8. Click `INITIALIZE CONVERSION SEQUENCE`.
+8. Click `PROCESS MESHES`.
 9. Click `OPEN EXPORT DIRECTORY` to jump to the results.
 
 ## Requirements
@@ -32,6 +33,15 @@ Ogre Mesh Tools is a Windows GUI utility for fixing and converting Ogre `.mesh` 
 - Python 3.x if running from source.
 - Blender for glTF export (set in the GUI).
 - `OgreXMLConverter.exe` bundled with the repo/release.
+- `customtkinter`, `pillow`, and `ogre-python` when running from source.
+
+## Command Line
+
+- `py MeshToObj.py input.mesh -o out_dir\`
+- `py MeshToObj.py --batch assets\ -o obj_out\`
+- `blender -b -P batch_ogre_to_gltf.py -- input.mesh gltf_out\ OgreXMLConverter.exe`
+
+The CLI tools now return nonzero exit codes when conversion fails, so they are safer to script around.
 
 ---
 Created for the Battlezone 98 Redux Community.

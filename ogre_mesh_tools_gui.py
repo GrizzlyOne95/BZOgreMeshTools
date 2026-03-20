@@ -1,25 +1,35 @@
-import os
-import sys
-import subprocess
-import threading
-import tkinter as tk
-from tkinter import filedialog, messagebox
-import customtkinter as ctk
 import json
+import os
+import shutil
+import subprocess
+import sys
+import threading
+import traceback
 from pathlib import Path
+from queue import Empty, Queue
+from tkinter import filedialog, messagebox
 
-# Platform check
+import customtkinter as ctk
+
 IS_WINDOWS = sys.platform == "win32"
-CONFIG_FILE = "ogre_tools_config.json"
 CREATE_NO_WINDOW = 0x08000000 if IS_WINDOWS else 0
 
+
+def get_app_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+APP_DIR = get_app_dir()
+CONFIG_FILE = os.path.join(APP_DIR, "ogre_tools_config.json")
+
 def get_resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller bundling """
+    """Get absolute path to resource for dev and PyInstaller bundling."""
     try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
-        base_path = os.path.dirname(os.path.abspath(__file__))
+        base_path = APP_DIR
     return os.path.join(base_path, relative_path)
 
 # Ensure current dir is in sys.path for imports
@@ -36,6 +46,25 @@ class ConsoleRedirector:
     def flush(self):
         pass
 
+
+def obj_output_name(source_name):
+    lower_name = source_name.lower()
+    if lower_name.endswith(".mesh.xml"):
+        return source_name[:-9] + ".obj"
+    if lower_name.endswith(".mesh"):
+        return source_name[:-5] + ".obj"
+    if lower_name.endswith(".xml"):
+        return source_name[:-4] + ".obj"
+    return source_name + ".obj"
+
+
+def resolve_executable_path(command):
+    if not command:
+        return None
+    if os.path.isabs(command) or os.path.dirname(command):
+        return command if os.path.exists(command) else None
+    return shutil.which(command)
+
 # ── COMMAND LINE MODE (FOR SUBPROCESSES) ──────────────────────────────────────
 # If the EXE is launched with arguments, check if we need to run a tool instead
 # of the GUI. This handles any legacy code using sys.executable subprocess calls.
@@ -46,17 +75,20 @@ if getattr(sys, 'frozen', False) and len(sys.argv) > 1:
         import MeshToObj
         # Mock sys.argv for the target script
         sys.argv = sys.argv[1:]
-        MeshToObj.main()
-        sys.exit(0)
+        result = MeshToObj.main()
+        sys.exit(result if isinstance(result, int) else 0)
     elif "batch_ogre_to_gltf" in arg1:
         import batch_ogre_to_gltf
         sys.argv = sys.argv[1:]
-        batch_ogre_to_gltf.main()
-        sys.exit(0)
+        result = batch_ogre_to_gltf.main()
+        sys.exit(result if isinstance(result, int) else 0)
 
 class OgreMeshToolsGUI(ctk.CTk):
     def __init__(self):
         super().__init__()
+
+        self._ui_queue = Queue()
+        self._main_thread_id = threading.get_ident()
 
         self.title("OGRE MESH TOOLS")
         self.geometry("1200x850")
@@ -102,11 +134,12 @@ class OgreMeshToolsGUI(ctk.CTk):
         # Capture stdout/stderr AFTER UI is setup
         sys.stdout = ConsoleRedirector(self.log)
         sys.stderr = ConsoleRedirector(self.log)
+        self.after(50, self._process_ui_queue)
         
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
             try:
-                with open(CONFIG_FILE, 'r') as f:
+                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                     cfg = json.load(f)
                     self.blender_path.set(cfg.get("blender_path", "blender"))
             except: pass
@@ -118,7 +151,7 @@ class OgreMeshToolsGUI(ctk.CTk):
             "blender_path": self.blender_path.get()
         }
         try:
-            with open(CONFIG_FILE, 'w') as f:
+            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(cfg, f, indent=4)
         except: pass
         
@@ -279,6 +312,139 @@ class OgreMeshToolsGUI(ctk.CTk):
         self.log_box = ctk.CTkTextbox(self.left_col, fg_color="#050505", text_color=self.colors["fg"], font=("Consolas", 12), border_width=1, border_color=self.colors["highlight"])
         self.log_box.pack(fill="both", expand=True, padx=5, pady=(5, 10))
 
+    def _queue_ui_call(self, callback, *args, **kwargs):
+        self._ui_queue.put((callback, args, kwargs))
+
+    def _process_ui_queue(self):
+        try:
+            while True:
+                callback, args, kwargs = self._ui_queue.get_nowait()
+                callback(*args, **kwargs)
+        except Empty:
+            pass
+
+        try:
+            self.after(50, self._process_ui_queue)
+        except Exception:
+            pass
+
+    def _append_log_ui(self, message, color=None):
+        if not message:
+            return
+        for line in str(message).splitlines():
+            self.log_box.insert("end", f"> {line}\n")
+        self.log_box.see("end")
+
+    def _clear_log_ui(self):
+        self.log_box.delete("1.0", "end")
+
+    def _set_progress_label_ui(self, text):
+        self.progress_label.configure(text=text)
+
+    def _set_progress_ui(self, value):
+        self.progress_bar.set(value)
+
+    def _set_run_state_ui(self, enabled, text):
+        self.run_btn.configure(state="normal" if enabled else "disabled", text=text)
+
+    def _show_message_ui(self, kind, title, message):
+        if kind == "error":
+            messagebox.showerror(title, message)
+        else:
+            messagebox.showinfo(title, message)
+
+    def log(self, message, color=None):
+        text = str(message).strip()
+        if not text:
+            return
+        if threading.get_ident() == self._main_thread_id:
+            self._append_log_ui(text, color=color)
+        else:
+            self._queue_ui_call(self._append_log_ui, text, color)
+
+    def _clear_log(self):
+        if threading.get_ident() == self._main_thread_id:
+            self._clear_log_ui()
+        else:
+            self._queue_ui_call(self._clear_log_ui)
+
+    def _set_progress_label(self, text):
+        if threading.get_ident() == self._main_thread_id:
+            self._set_progress_label_ui(text)
+        else:
+            self._queue_ui_call(self._set_progress_label_ui, text)
+
+    def _set_progress(self, value):
+        if threading.get_ident() == self._main_thread_id:
+            self._set_progress_ui(value)
+        else:
+            self._queue_ui_call(self._set_progress_ui, value)
+
+    def _set_run_state(self, enabled, text):
+        if threading.get_ident() == self._main_thread_id:
+            self._set_run_state_ui(enabled, text)
+        else:
+            self._queue_ui_call(self._set_run_state_ui, enabled, text)
+
+    def _show_message(self, kind, title, message):
+        if threading.get_ident() == self._main_thread_id:
+            self._show_message_ui(kind, title, message)
+        else:
+            self._queue_ui_call(self._show_message_ui, kind, title, message)
+
+    def _resolve_output_dir(self, requested_output, default_dir):
+        output_dir = requested_output.strip() if requested_output else default_dir
+        output_dir = os.path.abspath(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
+        return output_dir
+
+    def _validate_job_tools(self, job, xml_converter):
+        if not os.path.exists(xml_converter):
+            raise FileNotFoundError(f"Missing OgreXMLConverter.exe at {xml_converter}")
+
+        if job["do_gltf"]:
+            resolved_blender = resolve_executable_path(job["blender_path"])
+            if not resolved_blender:
+                raise FileNotFoundError(
+                    f"Blender executable not found: {job['blender_path']}"
+                )
+            return resolved_blender
+
+        return None
+
+    def _run_command(self, cmd, check=True):
+        self.log(f"Running: {' '.join(str(part) for part in cmd)}")
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            creationflags=CREATE_NO_WINDOW,
+        )
+
+        if result.stdout.strip():
+            self.log(result.stdout.strip())
+        if result.stderr.strip():
+            self.log(result.stderr.strip(), self.colors["warning"])
+
+        if check and result.returncode != 0:
+            raise subprocess.CalledProcessError(
+                result.returncode,
+                cmd,
+                output=result.stdout,
+                stderr=result.stderr,
+            )
+        return result
+
+    @staticmethod
+    def _summarize_errors(errors):
+        if not errors:
+            return ""
+        preview = errors[:8]
+        summary = "\n".join(f"- {err}" for err in preview)
+        if len(errors) > len(preview):
+            summary += f"\n- ... and {len(errors) - len(preview)} more"
+        return summary
+
     def browse_blender(self):
         f = filedialog.askopenfilename(filetypes=[("Executable", "*.exe"), ("All Files", "*.*")])
         if f: 
@@ -340,181 +506,244 @@ class OgreMeshToolsGUI(ctk.CTk):
         except Exception as e:
             self.log(f"Failed to load mesh in viewer: {str(e)}", self.colors["warning"])
 
-    def log(self, message, color=None):
-        self.log_box.insert("end", f"> {message}\n")
-        self.log_box.see("end")
-
     def start_process(self):
-        path = self.input_path.get()
-        if not path or not os.path.exists(path):
+        input_path = self.input_path.get().strip()
+        if not input_path or not os.path.exists(input_path):
             messagebox.showerror("Error", "Input path does not exist.")
             return
-        
-        self.run_btn.configure(state="disabled", text="PROCESSING...")
-        self.log_box.delete("1.0", "end")
-        self.progress_bar.set(0)
+
+        if not (self.do_normals.get() or self.do_obj.get() or self.do_gltf.get()):
+            messagebox.showerror("Error", "Select at least one operation.")
+            return
+
+        self.save_config()
+
+        job = {
+            "input_path": os.path.abspath(input_path),
+            "output_path": self.output_path.get().strip(),
+            "do_normals": self.do_normals.get(),
+            "do_obj": self.do_obj.get(),
+            "do_gltf": self.do_gltf.get(),
+            "batch_mode": self.batch_mode.get(),
+            "blender_path": self.blender_path.get().strip() or "blender",
+        }
+
+        self._set_run_state(False, "PROCESSING...")
+        self._clear_log()
+        self._set_progress(0)
         self.log("Starting operation sequence...")
-        
-        thread = threading.Thread(target=self.run_operations, daemon=True)
+
+        thread = threading.Thread(target=self.run_operations, args=(job,), daemon=True)
         thread.start()
 
-    def run_operations(self):
+    def run_operations(self, job):
+        errors = []
+
         try:
-            input_p = os.path.abspath(self.input_path.get())
+            input_p = job["input_path"]
+            requested_output = job["output_path"]
             xml_converter = get_resource_path("OgreXMLConverter.exe")
-            is_batch = self.batch_mode.get()
-            
-            # --- FILE LIST COLLECTION ---
+            is_batch = job["batch_mode"]
+            blender_exe = self._validate_job_tools(job, xml_converter)
+
             files_to_process = []
             if is_batch:
                 for root, _, files in os.walk(input_p):
                     for f in files:
-                        if f.lower().endswith(('.mesh', '.xml')):
+                        if f.lower().endswith((".mesh", ".xml")):
                             files_to_process.append(os.path.join(root, f))
             else:
                 files_to_process = [input_p]
 
-            # --- 1. NORMAL RECALCULATION ---
-            if self.do_normals.get():
+            if job["do_normals"]:
                 self.log(f"--- STARTING NORMAL RECALCULATION ({len(files_to_process)} files) ---")
-                self.after(0, lambda: self.progress_label.configure(text="RECALCULATING NORMALS..."))
+                self._set_progress_label("RECALCULATING NORMALS...")
                 import recalculate_normals
-                
+
                 corrected_count = 0
+                total_files = max(len(files_to_process), 1)
                 for i, f_path in enumerate(files_to_process):
-                    progress = (i / len(files_to_process)) * 0.33 if self.do_obj.get() or self.do_gltf.get() else (i / len(files_to_process))
-                    self.after(0, lambda p=progress: self.progress_bar.set(p))
-                    
+                    progress = (i / total_files) * 0.33 if (job["do_obj"] or job["do_gltf"]) else (i / total_files)
+                    self._set_progress(progress)
+
                     f_name = os.path.basename(f_path)
                     target_xml = f_path
-                    is_binary = f_path.lower().endswith(".mesh")
-                    
-                    if is_binary:
-                        subprocess.run([f'"{xml_converter}"', f'"{f_path}"'], check=True, capture_output=True, shell=True, creationflags=CREATE_NO_WINDOW)
-                        target_xml = f_path + ".xml"
+                    temp_xml = None
+
+                    try:
+                        if f_path.lower().endswith(".mesh"):
+                            self._run_command([xml_converter, f_path])
+                            candidate_paths = [f_path + ".xml", os.path.splitext(f_path)[0] + ".xml"]
+                            temp_xml = next((path for path in candidate_paths if os.path.exists(path)), None)
+                            target_xml = temp_xml or candidate_paths[0]
+
                         if not os.path.exists(target_xml):
-                            target_xml = os.path.splitext(f_path)[0] + ".xml"
-                    
-                    if os.path.exists(target_xml):
+                            raise FileNotFoundError(f"Could not find XML for {f_name}")
+
                         status = recalculate_normals.recalculate_normals(target_xml)
                         if status == "CHANGED":
                             self.log(f"UPDATED: Corrected normals for {f_name}")
                             corrected_count += 1
-                        else:
+                        elif status == "UNCHANGED":
                             self.log(f"CHECKED: Normals already correct for {f_name}")
-                        
-                        if is_binary:
-                            if status == "CHANGED":
-                                self.log(f"Exporting updated {f_name} back to binary mesh...")
-                                subprocess.run([f'"{xml_converter}"', f'"{target_xml}"'], check=True, capture_output=True, shell=True, creationflags=CREATE_NO_WINDOW)
-                            
-                            # Cleanup temp XML
-                            try: os.remove(target_xml)
-                            except: pass
-                    else:
-                        self.log(f"WARNING: Could not find XML for {f_name}", self.colors["warning"])
-                
+                        else:
+                            raise RuntimeError(f"Normal recalculation failed for {f_name}")
+
+                        if temp_xml and status == "CHANGED":
+                            self.log(f"Exporting updated {f_name} back to binary mesh...")
+                            self._run_command([xml_converter, target_xml])
+                    except Exception as exc:
+                        errors.append(f"Normals: {f_name}: {exc}")
+                        self.log(f"WARNING: {f_name}: {exc}", self.colors["warning"])
+                    finally:
+                        if temp_xml and os.path.exists(temp_xml):
+                            try:
+                                os.remove(temp_xml)
+                            except OSError:
+                                pass
+
                 self.log(f"--- NORMAL RECALCULATION COMPLETE: {corrected_count}/{len(files_to_process)} corrected ---")
 
-            # --- 2. OBJ CONVERSION ---
-            if self.do_obj.get():
-                self.after(0, lambda: self.progress_label.configure(text="CONVERTING TO OBJ..."))
-                self.after(0, lambda: self.progress_bar.set(0.5 if self.do_gltf.get() else 0.8))
-                self.log(f"--- STARTING OBJ CONVERSION ---")
-                
+            if job["do_obj"]:
+                self._set_progress_label("CONVERTING TO OBJ...")
+                self._set_progress(0.5 if job["do_gltf"] else 0.8)
+                self.log("--- STARTING OBJ CONVERSION ---")
+
                 try:
                     import MeshToObj
-                    req_out = self.output_path.get()
-                    if req_out and os.path.exists(req_out):
-                        output_dir = req_out
-                    else:
-                        output_dir = os.path.join(input_p if is_batch else os.path.dirname(input_p), "OBJ_Export")
-                        os.makedirs(output_dir, exist_ok=True)
-                    
+
+                    default_output = os.path.join(
+                        input_p if is_batch else os.path.dirname(input_p),
+                        "OBJ_Export",
+                    )
+                    output_dir = self._resolve_output_dir(requested_output, default_output)
                     self.last_output_dir = output_dir
-                    
-                    # Call MeshToObj logic directly in this thread
+
                     xml_conv = MeshToObj.OgreXMLConverter(os.path.dirname(xml_converter))
-                    
+
                     if is_batch:
-                        # Batch logic from MeshToObj.main
                         output_p = Path(output_dir)
-                        xml_dir = output_p / 'xml_temp'
-                        xml_dir.mkdir(exist_ok=True)
-                        
-                        self.log(f"Converting meshes to XML...")
-                        xml_files = xml_conv.batch_convert(input_p, xml_dir)
-                        
-                        self.log(f"Converting XML to OBJ...")
-                        for xml_f in xml_files:
-                            xml_path = Path(xml_f)
-                            obj_name = xml_path.name.replace('.mesh.xml', '.obj').replace('.xml', '.obj')
-                            obj_file = output_p / obj_name
-                            
-                            converter = MeshToObj.OgreXMLToOBJ()
-                            converter.convert(xml_f, obj_file, create_mtl=True)
-                        
-                        import shutil
-                        shutil.rmtree(xml_dir)
+                        xml_dir = output_p / "xml_temp"
+                        xml_dir.mkdir(parents=True, exist_ok=True)
+
+                        try:
+                            self.log("Converting meshes to XML...")
+                            xml_files = xml_conv.batch_convert(
+                                input_p,
+                                xml_dir,
+                                extensions=[".mesh"],
+                            )
+                            if not xml_files:
+                                raise RuntimeError("No .mesh files were converted to XML.")
+
+                            self.log("Converting XML to OBJ...")
+                            for xml_f in xml_files:
+                                xml_path = Path(xml_f)
+                                rel_xml = xml_path.relative_to(xml_dir)
+                                obj_rel = rel_xml.with_name(obj_output_name(rel_xml.name))
+                                obj_file = output_p / obj_rel
+                                obj_file.parent.mkdir(parents=True, exist_ok=True)
+
+                                converter = MeshToObj.OgreXMLToOBJ()
+                                converter.convert(
+                                    xml_f,
+                                    obj_file,
+                                    create_mtl=True,
+                                    texture_search_roots=[input_p],
+                                )
+                        finally:
+                            if xml_dir.exists():
+                                shutil.rmtree(xml_dir, ignore_errors=True)
                     else:
-                        # Single file logic from MeshToObj.main
                         output_p = Path(output_dir)
-                        obj_name = Path(input_p).name.replace('.mesh.xml', '.obj').replace('.mesh', '.obj').replace('.xml', '.obj')
-                        if not obj_name.endswith('.obj'): obj_name += '.obj'
-                        target_obj = output_p / obj_name
-                        
-                        xml_f = xml_conv.convert_to_xml(input_p)
-                        if xml_f:
-                            converter = MeshToObj.OgreXMLToOBJ()
-                            converter.convert(xml_f, target_obj, create_mtl=True)
-                            os.remove(xml_f)
+                        output_p.mkdir(parents=True, exist_ok=True)
+                        target_obj = output_p / obj_output_name(Path(input_p).name)
+
+                        cleanup_xml = False
+                        if input_p.lower().endswith(".xml"):
+                            xml_f = input_p
                         else:
-                            self.log("XML Conversion failed.", self.colors["warning"])
-                    
+                            xml_f = xml_conv.convert_to_xml(input_p)
+                            cleanup_xml = True
+
+                        if not xml_f:
+                            raise RuntimeError("XML conversion failed.")
+
+                        try:
+                            converter = MeshToObj.OgreXMLToOBJ()
+                            converter.convert(
+                                xml_f,
+                                target_obj,
+                                create_mtl=True,
+                                texture_search_roots=[Path(input_p).parent],
+                            )
+                        finally:
+                            if cleanup_xml and os.path.exists(xml_f):
+                                os.remove(xml_f)
+
                     self.log("OBJ Conversion completed.")
-                except Exception as e:
-                    self.log(f"OBJ ERROR: {str(e)}", self.colors["warning"])
-                
-            # --- 3. glTF CONVERSION ---
-            if self.do_gltf.get():
-                self.after(0, lambda: self.progress_label.configure(text="CONVERTING TO glTF (BLENDER)..."))
-                self.after(0, lambda: self.progress_bar.set(0.9))
-                self.log(f"--- STARTING glTF CONVERSION (Blender) ---")
-                
-                blender_cmd = self.blender_path.get()
-                gltf_script = get_resource_path("batch_ogre_to_gltf.py")
-                
-                req_out = self.output_path.get()
-                if req_out and os.path.exists(req_out):
-                    output_dir = req_out
-                else:
-                    output_dir = os.path.join(input_p if is_batch else os.path.dirname(input_p), "glTF_Export")
-                    os.makedirs(output_dir, exist_ok=True)
-                
-                self.last_output_dir = output_dir
-                in_dir = input_p if is_batch else os.path.dirname(input_p)
-                
-                # Blender still needs a subprocess because it's its own executable. 
-                # This call is SAFE because it calls blender.exe, NOT sys.executable.
-                cmd = [f'"{blender_cmd}"', "-b", "-P", f'"{gltf_script}"', "--", f'"{in_dir}"', f'"{output_dir}"', f'"{xml_converter}"']
-                result = subprocess.run(' '.join(cmd), capture_output=True, text=True, shell=True, creationflags=CREATE_NO_WINDOW)
-                self.log(result.stdout)
-                
-            self.after(0, lambda: self.progress_bar.set(1.0))
-            self.after(0, lambda: self.progress_label.configure(text="COMPLETE"))
-            self.log("OPERATION SEQUENCE COMPLETE.", self.colors["highlight"])
-            messagebox.showinfo("Success", "All operations completed successfully.")
-            
-        except subprocess.CalledProcessError as e:
-            self.log(f"PROCESS ERROR: {e.stderr.decode() if e.stderr else str(e)}")
-            messagebox.showerror("Error", f"Subprocess failed: {e}")
-        except Exception as e:
-            self.log(f"CRITICAL ERROR: {str(e)}")
-            import traceback
-            self.log(traceback.format_exc())
-            messagebox.showerror("Error", f"An error occurred: {e}")
+                except Exception as exc:
+                    errors.append(f"OBJ: {exc}")
+                    self.log(f"OBJ ERROR: {exc}", self.colors["warning"])
+
+            if job["do_gltf"]:
+                self._set_progress_label("CONVERTING TO glTF (BLENDER)...")
+                self._set_progress(0.9)
+                self.log("--- STARTING glTF CONVERSION (Blender) ---")
+
+                try:
+                    gltf_script = get_resource_path("batch_ogre_to_gltf.py")
+                    default_output = os.path.join(
+                        input_p if is_batch else os.path.dirname(input_p),
+                        "glTF_Export",
+                    )
+                    output_dir = self._resolve_output_dir(requested_output, default_output)
+                    self.last_output_dir = output_dir
+
+                    if not is_batch and not input_p.lower().endswith(".mesh"):
+                        raise RuntimeError("Single-file glTF conversion requires a .mesh input.")
+
+                    result = self._run_command(
+                        [
+                            blender_exe,
+                            "-b",
+                            "-P",
+                            gltf_script,
+                            "--",
+                            input_p,
+                            output_dir,
+                            xml_converter,
+                        ],
+                        check=False,
+                    )
+                    if result.returncode != 0:
+                        raise RuntimeError(f"Blender exited with code {result.returncode}.")
+
+                    self.log("glTF Conversion completed.")
+                except Exception as exc:
+                    errors.append(f"glTF: {exc}")
+                    self.log(f"glTF ERROR: {exc}", self.colors["warning"])
+
+            self._set_progress(1.0)
+
+            if errors:
+                summary = self._summarize_errors(errors)
+                self._set_progress_label("COMPLETE WITH ERRORS")
+                self.log("OPERATION SEQUENCE COMPLETED WITH ERRORS.", self.colors["warning"])
+                self.log(summary, self.colors["warning"])
+                self._show_message("error", "Completed With Errors", summary)
+            else:
+                self._set_progress_label("COMPLETE")
+                self.log("OPERATION SEQUENCE COMPLETE.", self.colors["highlight"])
+                self._show_message("info", "Success", "All operations completed successfully.")
+
+        except Exception as exc:
+            self._set_progress_label("FAILED")
+            self.log(f"CRITICAL ERROR: {exc}", self.colors["warning"])
+            self.log(traceback.format_exc(), self.colors["warning"])
+            self._show_message("error", "Error", f"An error occurred: {exc}")
         finally:
-            self.after(0, lambda: self.run_btn.configure(state="normal", text="PROCESS MESHES"))
+            self._set_run_state(True, "PROCESS MESHES")
 
 if __name__ == "__main__":
     app = OgreMeshToolsGUI()
