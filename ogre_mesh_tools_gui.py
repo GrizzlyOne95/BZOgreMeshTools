@@ -24,6 +24,7 @@ def get_app_dir():
 APP_DIR = get_app_dir()
 CONFIG_FILE = os.path.join(APP_DIR, "ogre_tools_config.json")
 
+
 def get_resource_path(relative_path):
     """Get absolute path to resource for dev and PyInstaller bundling."""
     try:
@@ -32,17 +33,21 @@ def get_resource_path(relative_path):
         base_path = APP_DIR
     return os.path.join(base_path, relative_path)
 
+
 # Ensure current dir is in sys.path for imports
 current_dir = get_resource_path(".")
 if current_dir not in sys.path:
     sys.path.append(current_dir)
 
+
 class ConsoleRedirector:
     def __init__(self, log_func):
         self.log_func = log_func
+
     def write(self, string):
         if string.strip():
             self.log_func(string.strip())
+
     def flush(self):
         pass
 
@@ -65,23 +70,28 @@ def resolve_executable_path(command):
         return command if os.path.exists(command) else None
     return shutil.which(command)
 
-# ── COMMAND LINE MODE (FOR SUBPROCESSES) ──────────────────────────────────────
+
+# ── COMMAND LINE MODE (FOR SUBPROCESSES) ────────────────────────────────
 # If the EXE is launched with arguments, check if we need to run a tool instead
-# of the GUI. This handles any legacy code using sys.executable subprocess calls.
-if getattr(sys, 'frozen', False) and len(sys.argv) > 1:
+# of the GUI. This handles any legacy code using sys.executable subprocess
+# calls.
+if getattr(sys, "frozen", False) and len(sys.argv) > 1:
     # Check for script-proxy mode
     arg1 = sys.argv[1].lower()
     if "meshtoobj" in arg1:
         import MeshToObj
+
         # Mock sys.argv for the target script
         sys.argv = sys.argv[1:]
         result = MeshToObj.main()
         sys.exit(result if isinstance(result, int) else 0)
     elif "batch_ogre_to_gltf" in arg1:
         import batch_ogre_to_gltf
+
         sys.argv = sys.argv[1:]
         result = batch_ogre_to_gltf.main()
         sys.exit(result if isinstance(result, int) else 0)
+
 
 class OgreMeshToolsGUI(ctk.CTk):
     def __init__(self):
@@ -92,32 +102,33 @@ class OgreMeshToolsGUI(ctk.CTk):
 
         self.title("OGRE MESH TOOLS")
         self.geometry("1200x850")
-        
+
         # --- ICON ---
         self.icon_path = get_resource_path("icon.ico")
-        if os.path.exists(self.icon_path):
+        if IS_WINDOWS and os.path.exists(self.icon_path):
             try:
                 self.iconbitmap(self.icon_path)
-            except: pass
-        
+            except Exception:
+                pass
+
         # --- THEME & COLORS ---
         self.colors = {
             "bg": "#0a0a0a",
             "fg": "#d4d4d4",
-            "highlight": "#00ff00", # Neon Green
-            "warning": "#ffff44",   # Amber/Gold
-            "accent": "#00ffff",    # Cyan
-            "dark": "#1a1a1a"
+            "highlight": "#00ff00",  # Neon Green
+            "warning": "#ffff44",  # Amber/Gold
+            "accent": "#00ffff",  # Cyan
+            "dark": "#1a1a1a",
         }
-        
+
         ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("green") # matches highlight
-        
+        ctk.set_default_color_theme("green")  # matches highlight
+
         self.configure(fg_color=self.colors["bg"])
-        
+
         self.resource_dir = get_resource_path(".")
         self.load_custom_fonts()
-        
+
         # --- VARIABLES ---
         self.input_path = ctk.StringVar()
         self.output_path = ctk.StringVar()
@@ -127,75 +138,89 @@ class OgreMeshToolsGUI(ctk.CTk):
         self.batch_mode = ctk.BooleanVar(value=False)
         self.blender_path = ctk.StringVar()
         self.last_output_dir = ""
-        
+
         self.load_config()
         self.setup_ui()
-        
+
         # Capture stdout/stderr AFTER UI is setup
         sys.stdout = ConsoleRedirector(self.log)
         sys.stderr = ConsoleRedirector(self.log)
         self.after(50, self._process_ui_queue)
-        
+
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
             try:
-                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
                     self.blender_path.set(cfg.get("blender_path", "blender"))
-            except: pass
+            except Exception:
+                pass
         else:
             self.blender_path.set("blender")
 
     def save_config(self):
-        cfg = {
-            "blender_path": self.blender_path.get()
-        }
+        cfg = {"blender_path": self.blender_path.get()}
         try:
-            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, indent=4)
-        except: pass
-        
+        except Exception:
+            pass
+
     def load_custom_fonts(self):
         self.main_font = "Consolas"
         if IS_WINDOWS:
             font_path = get_resource_path("BZONE.ttf")
             if os.path.exists(font_path):
-                # AddFontResourceExW flag 0x10 is FR_PRIVATE (not enumerable by others)
+                # AddFontResourceExW flag 0x10 is FR_PRIVATE (not enumerable by
+                # others)
                 import ctypes
+
                 ctypes.windll.gdi32.AddFontResourceExW(font_path, 0x10, 0)
                 self.main_font = "BZONE"
                 print(f"Loaded custom font: {self.main_font}")
 
     def setup_ui(self):
         # Header
-        self.header = ctk.CTkLabel(self, text="OGRE MESH TOOLS", 
-                                  font=(self.main_font, 32, "bold"), 
-                                  text_color=self.colors["highlight"])
+        self.header = ctk.CTkLabel(
+            self,
+            text="OGRE MESH TOOLS",
+            font=(self.main_font, 32, "bold"),
+            text_color=self.colors["highlight"],
+        )
         self.header.pack(pady=(20, 10))
-        
-        self.subtitle = ctk.CTkLabel(self, text="BATTLEZONE CONVERSION UTILITY", 
-                                    font=(self.main_font, 14), 
-                                    text_color=self.colors["accent"])
+
+        self.subtitle = ctk.CTkLabel(
+            self,
+            text="BATTLEZONE CONVERSION UTILITY",
+            font=(self.main_font, 14),
+            text_color=self.colors["accent"],
+        )
         self.subtitle.pack(pady=(0, 20))
 
         # --- ACTION BUTTONS (Packed bottom-up to ensure visibility) ---
-        self.open_folder_btn = ctk.CTkButton(self, text="OPEN EXPORT DIRECTORY", 
-                                            command=self.open_output_folder,
-                                            font=(self.main_font, 12),
-                                            fg_color="transparent",
-                                            text_color=self.colors["accent"],
-                                            hover_color=self.colors["dark"])
+        self.open_folder_btn = ctk.CTkButton(
+            self,
+            text="OPEN EXPORT DIRECTORY",
+            command=self.open_output_folder,
+            font=(self.main_font, 12),
+            fg_color="transparent",
+            text_color=self.colors["accent"],
+            hover_color=self.colors["dark"],
+        )
         self.open_folder_btn.pack(side="bottom", pady=(0, 20))
 
-        self.run_btn = ctk.CTkButton(self, text="PROCESS MESHES", 
-                                    command=self.start_process, 
-                                    font=(self.main_font, 16, "bold"), 
-                                    height=50, 
-                                    fg_color=self.colors["dark"], 
-                                    border_width=2, 
-                                    border_color=self.colors["highlight"],
-                                    hover_color=self.colors["highlight"],
-                                    text_color=self.colors["highlight"])
+        self.run_btn = ctk.CTkButton(
+            self,
+            text="PROCESS MESHES",
+            command=self.start_process,
+            font=(self.main_font, 16, "bold"),
+            height=50,
+            fg_color=self.colors["dark"],
+            border_width=2,
+            border_color=self.colors["highlight"],
+            hover_color=self.colors["highlight"],
+            text_color=self.colors["highlight"],
+        )
         self.run_btn.configure(hover_color="#006600")
         self.run_btn.pack(side="bottom", fill="x", padx=45, pady=(10, 5))
 
@@ -211,105 +236,246 @@ class OgreMeshToolsGUI(ctk.CTk):
         self.right_col = ctk.CTkFrame(self.main_container, fg_color=self.colors["dark"])
         self.right_col.pack(side="right", fill="both", expand=True)
 
-        ctk.CTkLabel(self.right_col, text="MESH PREVIEW", font=(self.main_font, 12, "bold"), text_color=self.colors["highlight"]).pack(anchor="w", padx=10, pady=(5,0))
-        
+        ctk.CTkLabel(
+            self.right_col,
+            text="MESH PREVIEW",
+            font=(self.main_font, 12, "bold"),
+            text_color=self.colors["highlight"],
+        ).pack(anchor="w", padx=10, pady=(5, 0))
+
         try:
             import ogre_preview
+
             self.preview_frame = ogre_preview.OgrePreviewFrame(self.right_col)
             self.preview_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
-        except (ImportError, Exception):
-            lbl = ctk.CTkLabel(self.right_col, text="Ogre preview not available.\nRun 'py -3.10 -m pip install ogre-python' first.")
+        except ImportError:
+            lbl = ctk.CTkLabel(
+                self.right_col,
+                text="Ogre preview not available.\nRun 'py -3.10 -m pip install ogre-python' first.",
+            )
             lbl.pack(expand=True)
             self.preview_frame = None
 
         # --- INPUT SECTION ---
         self.input_frame = ctk.CTkFrame(self.left_col, fg_color=self.colors["dark"])
         self.input_frame.pack(fill="x", pady=10, padx=5)
-        
-        ctk.CTkLabel(self.input_frame, text="INPUT SOURCE", font=(self.main_font, 12, "bold"), text_color=self.colors["highlight"]).pack(anchor="w", padx=10, pady=(5,0))
-        
+
+        ctk.CTkLabel(
+            self.input_frame,
+            text="INPUT SOURCE",
+            font=(self.main_font, 12, "bold"),
+            text_color=self.colors["highlight"],
+        ).pack(anchor="w", padx=10, pady=(5, 0))
+
         self.path_row = ctk.CTkFrame(self.input_frame, fg_color="transparent")
         self.path_row.pack(fill="x", padx=10, pady=(10, 5))
-        
-        self.input_entry = ctk.CTkEntry(self.path_row, textvariable=self.input_path, placeholder_text="Select a .mesh file or directory...", fg_color="#050505", border_color=self.colors["highlight"])
+
+        self.input_entry = ctk.CTkEntry(
+            self.path_row,
+            textvariable=self.input_path,
+            placeholder_text="Select a .mesh file or directory...",
+            fg_color="#050505",
+            border_color=self.colors["highlight"],
+        )
         self.input_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        
-        self.preview_btn = ctk.CTkButton(self.path_row, text="PREVIEW", command=self.preview_mesh, font=(self.main_font, 12, "bold"), fg_color=self.colors["dark"], border_width=1, border_color=self.colors["accent"], hover_color="#222", text_color=self.colors["accent"])
+
+        self.preview_btn = ctk.CTkButton(
+            self.path_row,
+            text="PREVIEW",
+            command=self.preview_mesh,
+            font=(self.main_font, 12, "bold"),
+            fg_color=self.colors["dark"],
+            border_width=1,
+            border_color=self.colors["accent"],
+            hover_color="#222",
+            text_color=self.colors["accent"],
+        )
         self.preview_btn.pack(side="right", padx=(10, 0))
 
-        self.browse_btn = ctk.CTkButton(self.path_row, text="BROWSE", command=self.browse_input, font=(self.main_font, 12), fg_color=self.colors["dark"], border_width=1, border_color=self.colors["highlight"], hover_color="#222")
+        self.browse_btn = ctk.CTkButton(
+            self.path_row,
+            text="BROWSE",
+            command=self.browse_input,
+            font=(self.main_font, 12),
+            fg_color=self.colors["dark"],
+            border_width=1,
+            border_color=self.colors["highlight"],
+            hover_color="#222",
+        )
         self.browse_btn.pack(side="right")
-        
+
         self.out_row = ctk.CTkFrame(self.input_frame, fg_color="transparent")
         self.out_row.pack(fill="x", padx=10, pady=(5, 10))
-        
-        ctk.CTkLabel(self.out_row, text="OUTPUT:", font=(self.main_font, 11), text_color=self.colors["fg"]).pack(side="left", padx=(0, 8))
-        
-        self.output_entry = ctk.CTkEntry(self.out_row, textvariable=self.output_path, placeholder_text="Output Destination (Optional)...", fg_color="#050505", border_color=self.colors["highlight"])
+
+        ctk.CTkLabel(
+            self.out_row,
+            text="OUTPUT:",
+            font=(self.main_font, 11),
+            text_color=self.colors["fg"],
+        ).pack(side="left", padx=(0, 8))
+
+        self.output_entry = ctk.CTkEntry(
+            self.out_row,
+            textvariable=self.output_path,
+            placeholder_text="Output Destination (Optional)...",
+            fg_color="#050505",
+            border_color=self.colors["highlight"],
+        )
         self.output_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        
-        self.browse_out_btn = ctk.CTkButton(self.out_row, text="BROWSE", command=self.browse_output, font=(self.main_font, 12), fg_color=self.colors["dark"], border_width=1, border_color=self.colors["highlight"], hover_color="#222")
+
+        self.browse_out_btn = ctk.CTkButton(
+            self.out_row,
+            text="BROWSE",
+            command=self.browse_output,
+            font=(self.main_font, 12),
+            fg_color=self.colors["dark"],
+            border_width=1,
+            border_color=self.colors["highlight"],
+            hover_color="#222",
+        )
         self.browse_out_btn.pack(side="right")
-        
-        self.mode_switch = ctk.CTkSwitch(self.input_frame, text="BATCH DIRECTORY MODE", variable=self.batch_mode, font=(self.main_font, 11), progress_color=self.colors["highlight"])
+
+        self.mode_switch = ctk.CTkSwitch(
+            self.input_frame,
+            text="BATCH DIRECTORY MODE",
+            variable=self.batch_mode,
+            font=(self.main_font, 11),
+            progress_color=self.colors["highlight"],
+        )
         self.mode_switch.pack(anchor="w", padx=10, pady=(0, 10))
 
         # --- CONFIG SECTION ---
         self.cfg_frame = ctk.CTkFrame(self.left_col, fg_color=self.colors["dark"])
         self.cfg_frame.pack(fill="x", pady=10, padx=5)
-        
-        ctk.CTkLabel(self.cfg_frame, text="SETTINGS", font=(self.main_font, 12, "bold"), text_color=self.colors["highlight"]).pack(anchor="w", padx=10, pady=(5,0))
-        
+
+        ctk.CTkLabel(
+            self.cfg_frame,
+            text="SETTINGS",
+            font=(self.main_font, 12, "bold"),
+            text_color=self.colors["highlight"],
+        ).pack(anchor="w", padx=10, pady=(5, 0))
+
         self.blender_row = ctk.CTkFrame(self.cfg_frame, fg_color="transparent")
         self.blender_row.pack(fill="x", padx=10, pady=(5, 5))
-        
-        ctk.CTkLabel(self.blender_row, text="Blender Path:", font=(self.main_font, 11)).pack(side="left", padx=(0, 10))
-        self.blender_entry = ctk.CTkEntry(self.blender_row, textvariable=self.blender_path, fg_color="#050505", border_color=self.colors["highlight"], height=24)
+
+        ctk.CTkLabel(
+            self.blender_row, text="Blender Path:", font=(self.main_font, 11)
+        ).pack(side="left", padx=(0, 10))
+        self.blender_entry = ctk.CTkEntry(
+            self.blender_row,
+            textvariable=self.blender_path,
+            fg_color="#050505",
+            border_color=self.colors["highlight"],
+            height=24,
+        )
         self.blender_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        
-        self.blender_browse = ctk.CTkButton(self.blender_row, text="...", width=30, height=24, command=self.browse_blender)
+
+        self.blender_browse = ctk.CTkButton(
+            self.blender_row,
+            text="...",
+            width=30,
+            height=24,
+            command=self.browse_blender,
+        )
         self.blender_browse.pack(side="right")
 
         # --- PROGRESS SECTION ---
         self.progress_frame = ctk.CTkFrame(self.left_col, fg_color="transparent")
         self.progress_frame.pack(fill="x", pady=(10, 0), padx=5)
-        
-        self.progress_label = ctk.CTkLabel(self.progress_frame, text="READY", font=(self.main_font, 10), text_color=self.colors["fg"])
+
+        self.progress_label = ctk.CTkLabel(
+            self.progress_frame,
+            text="READY",
+            font=(self.main_font, 10),
+            text_color=self.colors["fg"],
+        )
         self.progress_label.pack(side="left")
-        
-        self.progress_bar = ctk.CTkProgressBar(self.progress_frame, progress_color=self.colors["highlight"], fg_color=self.colors["dark"])
+
+        self.progress_bar = ctk.CTkProgressBar(
+            self.progress_frame,
+            progress_color=self.colors["highlight"],
+            fg_color=self.colors["dark"],
+        )
         self.progress_bar.pack(side="right", fill="x", expand=True, padx=(10, 0))
         self.progress_bar.set(0)
 
         # --- OPERATIONS ---
         self.ops_frame = ctk.CTkFrame(self.left_col, fg_color=self.colors["dark"])
         self.ops_frame.pack(fill="x", pady=10, padx=5)
-        
-        ctk.CTkLabel(self.ops_frame, text="OPERATIONS", font=(self.main_font, 12, "bold"), text_color=self.colors["highlight"]).pack(anchor="w", padx=10, pady=(5,5))
-        
+
+        ctk.CTkLabel(
+            self.ops_frame,
+            text="OPERATIONS",
+            font=(self.main_font, 12, "bold"),
+            text_color=self.colors["highlight"],
+        ).pack(anchor="w", padx=10, pady=(5, 5))
+
         # glTF Row
         self.gltf_row = ctk.CTkFrame(self.ops_frame, fg_color="transparent")
         self.gltf_row.pack(fill="x", padx=20, pady=2)
-        self.check_gltf = ctk.CTkCheckBox(self.gltf_row, text="CONVERT TO glTF (.glb)", variable=self.do_gltf, font=(self.main_font, 12), border_color=self.colors["highlight"], checkmark_color=self.colors["bg"])
+        self.check_gltf = ctk.CTkCheckBox(
+            self.gltf_row,
+            text="CONVERT TO glTF (.glb)",
+            variable=self.do_gltf,
+            font=(self.main_font, 12),
+            border_color=self.colors["highlight"],
+            checkmark_color=self.colors["bg"],
+        )
         self.check_gltf.pack(side="left")
-        ctk.CTkLabel(self.gltf_row, text="[ANIMATED / RIGGED - REQUIRES BLENDER]", font=(self.main_font, 10), text_color=self.colors["accent"]).pack(side="left", padx=10)
-        
+        ctk.CTkLabel(
+            self.gltf_row,
+            text="[ANIMATED / RIGGED - REQUIRES BLENDER]",
+            font=(self.main_font, 10),
+            text_color=self.colors["accent"],
+        ).pack(side="left", padx=10)
+
         # OBJ Row
         self.obj_row = ctk.CTkFrame(self.ops_frame, fg_color="transparent")
         self.obj_row.pack(fill="x", padx=20, pady=5)
-        self.check_obj = ctk.CTkCheckBox(self.obj_row, text="CONVERT TO OBJ", variable=self.do_obj, font=(self.main_font, 12), border_color=self.colors["highlight"], checkmark_color=self.colors["bg"])
+        self.check_obj = ctk.CTkCheckBox(
+            self.obj_row,
+            text="CONVERT TO OBJ",
+            variable=self.do_obj,
+            font=(self.main_font, 12),
+            border_color=self.colors["highlight"],
+            checkmark_color=self.colors["bg"],
+        )
         self.check_obj.pack(side="left")
-        ctk.CTkLabel(self.obj_row, text="[STATIC MESH - STANDALONE]", font=(self.main_font, 10), text_color=self.colors["fg"]).pack(side="left", padx=10)
-        
+        ctk.CTkLabel(
+            self.obj_row,
+            text="[STATIC MESH - STANDALONE]",
+            font=(self.main_font, 10),
+            text_color=self.colors["fg"],
+        ).pack(side="left", padx=10)
+
         # Normals
-        self.check_normals = ctk.CTkCheckBox(self.ops_frame, text="RECALCULATE NORMALS (Requires XML)", variable=self.do_normals, font=(self.main_font, 12), border_color=self.colors["highlight"], checkmark_color=self.colors["bg"])
+        self.check_normals = ctk.CTkCheckBox(
+            self.ops_frame,
+            text="RECALCULATE NORMALS (Requires XML)",
+            variable=self.do_normals,
+            font=(self.main_font, 12),
+            border_color=self.colors["highlight"],
+            checkmark_color=self.colors["bg"],
+        )
         self.check_normals.pack(anchor="w", padx=20, pady=5)
 
         # --- LOGGING ---
-        self.log_label = ctk.CTkLabel(self.left_col, text="TERMINAL OUTPUT", font=(self.main_font, 12, "bold"), text_color=self.colors["highlight"])
+        self.log_label = ctk.CTkLabel(
+            self.left_col,
+            text="TERMINAL OUTPUT",
+            font=(self.main_font, 12, "bold"),
+            text_color=self.colors["highlight"],
+        )
         self.log_label.pack(anchor="w", padx=5, pady=(10, 0))
-        
-        self.log_box = ctk.CTkTextbox(self.left_col, fg_color="#050505", text_color=self.colors["fg"], font=("Consolas", 12), border_width=1, border_color=self.colors["highlight"])
+
+        self.log_box = ctk.CTkTextbox(
+            self.left_col,
+            fg_color="#050505",
+            text_color=self.colors["fg"],
+            font=("Consolas", 12),
+            border_width=1,
+            border_color=self.colors["highlight"],
+        )
         self.log_box.pack(fill="both", expand=True, padx=5, pady=(5, 10))
 
     def _queue_ui_call(self, callback, *args, **kwargs):
@@ -446,66 +612,86 @@ class OgreMeshToolsGUI(ctk.CTk):
         return summary
 
     def browse_blender(self):
-        f = filedialog.askopenfilename(filetypes=[("Executable", "*.exe"), ("All Files", "*.*")])
-        if f: 
+        f = filedialog.askopenfilename(
+            filetypes=[("Executable", "*.exe"), ("All Files", "*.*")]
+        )
+        if f:
             self.blender_path.set(f)
             self.save_config()
 
     def browse_input(self):
         if self.batch_mode.get():
             d = filedialog.askdirectory()
-            if d: self.input_path.set(d)
+            if d:
+                self.input_path.set(d)
         else:
-            f = filedialog.askopenfilename(filetypes=[("Ogre Mesh", "*.mesh"), ("Ogre XML", "*.xml"), ("All Files", "*.*")])
-            if f: self.input_path.set(f)
+            f = filedialog.askopenfilename(
+                filetypes=[
+                    ("Ogre Mesh", "*.mesh"),
+                    ("Ogre XML", "*.xml"),
+                    ("All Files", "*.*"),
+                ]
+            )
+            if f:
+                self.input_path.set(f)
 
     def browse_output(self):
         d = filedialog.askdirectory()
-        if d: self.output_path.set(d)
+        if d:
+            self.output_path.set(d)
 
     def open_output_folder(self):
         if self.last_output_dir and os.path.exists(self.last_output_dir):
             if IS_WINDOWS:
                 os.startfile(self.last_output_dir)
             else:
-                subprocess.run(["xdg-open", self.last_output_dir], creationflags=CREATE_NO_WINDOW)
+                subprocess.run(
+                    ["xdg-open", self.last_output_dir], creationflags=CREATE_NO_WINDOW
+                )
         else:
             messagebox.showinfo("Note", "No export directory has been created yet.")
 
     def preview_mesh(self):
         path = self.input_path.get()
-        
+
         if not path or not os.path.exists(path):
-            messagebox.showerror("Error", "Please select a valid input mesh or directory to preview.")
+            messagebox.showerror(
+                "Error", "Please select a valid input mesh or directory to preview."
+            )
             return
-            
+
         if self.batch_mode.get():
             # In batch mode, try to find the first .mesh file to preview
             for root, _, files in os.walk(path):
                 for f in files:
-                    if f.lower().endswith('.mesh'):
+                    if f.lower().endswith(".mesh"):
                         path = os.path.join(root, f)
                         break
-                if path.lower().endswith('.mesh'):
+                if path.lower().endswith(".mesh"):
                     break
-                    
-            if not path.lower().endswith('.mesh'):
-                messagebox.showerror("Error", "No .mesh files found in the selected batch directory to preview.")
+
+            if not path.lower().endswith(".mesh"):
+                messagebox.showerror(
+                    "Error",
+                    "No .mesh files found in the selected batch directory to preview.",
+                )
                 return
-                
-        if not path.lower().endswith('.mesh'):
+
+        if not path.lower().endswith(".mesh"):
             messagebox.showerror("Error", "Selected file is not a valid .mesh file.")
             return
-            
+
         self.log(f"Loading native preview for: {os.path.basename(path)}")
         try:
             if self.preview_frame:
                 self.preview_frame.load_mesh(path)
             else:
-                self.log("Preview frame failed to initialize earlier.", self.colors["warning"])
+                self.log(
+                    "Preview frame failed to initialize earlier.",
+                    self.colors["warning"],
+                )
         except Exception as e:
             self.log(f"Failed to load mesh in viewer: {str(e)}", self.colors["warning"])
-
     def start_process(self):
         input_path = self.input_path.get().strip()
         if not input_path or not os.path.exists(input_path):
@@ -556,14 +742,20 @@ class OgreMeshToolsGUI(ctk.CTk):
                 files_to_process = [input_p]
 
             if job["do_normals"]:
-                self.log(f"--- STARTING NORMAL RECALCULATION ({len(files_to_process)} files) ---")
+                self.log(
+                    f"--- STARTING NORMAL RECALCULATION ({len(files_to_process)} files) ---"
+                )
                 self._set_progress_label("RECALCULATING NORMALS...")
                 import recalculate_normals
 
                 corrected_count = 0
                 total_files = max(len(files_to_process), 1)
                 for i, f_path in enumerate(files_to_process):
-                    progress = (i / total_files) * 0.33 if (job["do_obj"] or job["do_gltf"]) else (i / total_files)
+                    progress = (
+                        (i / total_files) * 0.33
+                        if (job["do_obj"] or job["do_gltf"])
+                        else (i / total_files)
+                    )
                     self._set_progress(progress)
 
                     f_name = os.path.basename(f_path)
@@ -573,8 +765,18 @@ class OgreMeshToolsGUI(ctk.CTk):
                     try:
                         if f_path.lower().endswith(".mesh"):
                             self._run_command([xml_converter, f_path])
-                            candidate_paths = [f_path + ".xml", os.path.splitext(f_path)[0] + ".xml"]
-                            temp_xml = next((path for path in candidate_paths if os.path.exists(path)), None)
+                            candidate_paths = [
+                                f_path + ".xml",
+                                os.path.splitext(f_path)[0] + ".xml",
+                            ]
+                            temp_xml = next(
+                                (
+                                    path
+                                    for path in candidate_paths
+                                    if os.path.exists(path)
+                                ),
+                                None,
+                            )
                             target_xml = temp_xml or candidate_paths[0]
 
                         if not os.path.exists(target_xml):
@@ -587,10 +789,14 @@ class OgreMeshToolsGUI(ctk.CTk):
                         elif status == "UNCHANGED":
                             self.log(f"CHECKED: Normals already correct for {f_name}")
                         else:
-                            raise RuntimeError(f"Normal recalculation failed for {f_name}")
+                            raise RuntimeError(
+                                f"Normal recalculation failed for {f_name}"
+                            )
 
                         if temp_xml and status == "CHANGED":
-                            self.log(f"Exporting updated {f_name} back to binary mesh...")
+                            self.log(
+                                f"Exporting updated {f_name} back to binary mesh..."
+                            )
                             self._run_command([xml_converter, target_xml])
                     except Exception as exc:
                         errors.append(f"Normals: {f_name}: {exc}")
@@ -602,7 +808,8 @@ class OgreMeshToolsGUI(ctk.CTk):
                             except OSError:
                                 pass
 
-                self.log(f"--- NORMAL RECALCULATION COMPLETE: {corrected_count}/{len(files_to_process)} corrected ---")
+                self.log(f"--- NORMAL RECALCULATION COMPLETE: {corrected_count}/{
+                        len(files_to_process)} corrected ---")
 
             if job["do_obj"]:
                 self._set_progress_label("CONVERTING TO OBJ...")
@@ -616,10 +823,14 @@ class OgreMeshToolsGUI(ctk.CTk):
                         input_p if is_batch else os.path.dirname(input_p),
                         "OBJ_Export",
                     )
-                    output_dir = self._resolve_output_dir(requested_output, default_output)
+                    output_dir = self._resolve_output_dir(
+                        requested_output, default_output
+                    )
                     self.last_output_dir = output_dir
 
-                    xml_conv = MeshToObj.OgreXMLConverter(os.path.dirname(xml_converter))
+                    xml_conv = MeshToObj.OgreXMLConverter(
+                        os.path.dirname(xml_converter)
+                    )
 
                     if is_batch:
                         output_p = Path(output_dir)
@@ -634,13 +845,17 @@ class OgreMeshToolsGUI(ctk.CTk):
                                 extensions=[".mesh"],
                             )
                             if not xml_files:
-                                raise RuntimeError("No .mesh files were converted to XML.")
+                                raise RuntimeError(
+                                    "No .mesh files were converted to XML."
+                                )
 
                             self.log("Converting XML to OBJ...")
                             for xml_f in xml_files:
                                 xml_path = Path(xml_f)
                                 rel_xml = xml_path.relative_to(xml_dir)
-                                obj_rel = rel_xml.with_name(obj_output_name(rel_xml.name))
+                                obj_rel = rel_xml.with_name(
+                                    obj_output_name(rel_xml.name)
+                                )
                                 obj_file = output_p / obj_rel
                                 obj_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -697,11 +912,15 @@ class OgreMeshToolsGUI(ctk.CTk):
                         input_p if is_batch else os.path.dirname(input_p),
                         "glTF_Export",
                     )
-                    output_dir = self._resolve_output_dir(requested_output, default_output)
+                    output_dir = self._resolve_output_dir(
+                        requested_output, default_output
+                    )
                     self.last_output_dir = output_dir
 
                     if not is_batch and not input_p.lower().endswith(".mesh"):
-                        raise RuntimeError("Single-file glTF conversion requires a .mesh input.")
+                        raise RuntimeError(
+                            "Single-file glTF conversion requires a .mesh input."
+                        )
 
                     result = self._run_command(
                         [
@@ -717,7 +936,9 @@ class OgreMeshToolsGUI(ctk.CTk):
                         check=False,
                     )
                     if result.returncode != 0:
-                        raise RuntimeError(f"Blender exited with code {result.returncode}.")
+                        raise RuntimeError(
+                            f"Blender exited with code {result.returncode}."
+                        )
 
                     self.log("glTF Conversion completed.")
                 except Exception as exc:
@@ -729,13 +950,17 @@ class OgreMeshToolsGUI(ctk.CTk):
             if errors:
                 summary = self._summarize_errors(errors)
                 self._set_progress_label("COMPLETE WITH ERRORS")
-                self.log("OPERATION SEQUENCE COMPLETED WITH ERRORS.", self.colors["warning"])
+                self.log(
+                    "OPERATION SEQUENCE COMPLETED WITH ERRORS.", self.colors["warning"]
+                )
                 self.log(summary, self.colors["warning"])
                 self._show_message("error", "Completed With Errors", summary)
             else:
                 self._set_progress_label("COMPLETE")
                 self.log("OPERATION SEQUENCE COMPLETE.", self.colors["highlight"])
-                self._show_message("info", "Success", "All operations completed successfully.")
+                self._show_message(
+                    "info", "Success", "All operations completed successfully."
+                )
 
         except Exception as exc:
             self._set_progress_label("FAILED")
@@ -744,6 +969,7 @@ class OgreMeshToolsGUI(ctk.CTk):
             self._show_message("error", "Error", f"An error occurred: {exc}")
         finally:
             self._set_run_state(True, "PROCESS MESHES")
+
 
 if __name__ == "__main__":
     app = OgreMeshToolsGUI()

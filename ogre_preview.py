@@ -14,6 +14,7 @@ Strategy:
 import os
 import math
 import tkinter as tk
+
 import customtkinter as ctk
 import importlib.util
 
@@ -25,29 +26,33 @@ except ImportError:
     Ogre = None
     OgreBites = None
     RTShader = None
-    print("WARNING: Ogre python module not found! Run: py -3.10 -m pip install ogre-python")
+    print(
+        "WARNING: Ogre python module not found! Run: py -3.10 -m pip install ogre-python"
+    )
 
 import sys
 
 # In PyInstaller, we want the log next to the EXE, not in the temp _MEIPASS dir
 if getattr(sys, "frozen", False):
-    APP_DIR = os.path.dirname(sys.executable)
+    _log_dir = os.path.dirname(sys.executable)
 else:
-    APP_DIR = os.path.dirname(os.path.abspath(__file__))
+    _log_dir = os.path.dirname(os.path.abspath(__file__))
 
-LOG_FILE = os.path.join(APP_DIR, "OgrePreview.log")
+LOG_FILE = os.path.join(_log_dir, "OgrePreview.log")
+
 
 def log_msg(msg):
     try:
         with open(LOG_FILE, "a") as f:
             f.write(f"{msg}\n")
-            f.flush() # Force write to disk
+            f.flush()  # Force write to disk
     except Exception as e:
         # Fallback to sys.stderr if file write fails
         sys.stderr.write(f"[LOG_ERROR] {e} while logging: {msg}\n")
     print(msg)
 
-log_msg(f"--- ogre_preview.py loaded. System: {sys.platform}. Log: {LOG_FILE} ---")
+
+log_msg("--- ogre_preview.py loaded. System: {sys.platform}. Log: {LOG_FILE} ---")
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +60,7 @@ log_msg(f"--- ogre_preview.py loaded. System: {sys.platform}. Log: {LOG_FILE} --
 # loading, RTShader init, resource loading).  setup() is fully overridden
 # and never calls super().setup() or ApplicationContext.createWindow().
 # ---------------------------------------------------------------------------
+
 
 class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object):
     """Initializes Ogre into an external HWND without creating a popup window."""
@@ -101,7 +107,8 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
                 log_msg("[OgrePreview] CRITICAL: No Ogre render system available.")
                 raise RuntimeError("No Ogre render system available.")
             root.setRenderSystem(renderers[0])
-            log_msg(f"[OgrePreview] Fallback selected: {renderers[0].getName()}")
+            log_msg(f"[OgrePreview] Fallback selected: {
+                    renderers[0].getName()}")
 
         # 2. Initialise Root — no auto-window
         log_msg("[OgrePreview] Initialising Root...")
@@ -109,7 +116,10 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
         log_msg("[OgrePreview] Root initialised.")
 
         # 3. Create render window embedded in our Tk frame.
-        log_msg("[OgrePreview] Creating render window...")
+        log_msg(f"[OgrePreview] Creating render window (HWND: {
+                self._hwnd}, Size: {
+                self._width}x{
+                self._height})...")
         params = Ogre.NameValueMap()
         params["externalWindowHandle"] = str(self._hwnd)
         params["FSAA"] = "0"
@@ -119,12 +129,15 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
         self._render_window = root.createRenderWindow(
             "OgrePreview", self._width, self._height, False, params
         )
-        log_msg(f"[OgrePreview] Render window created: {self._render_window.getName()}")
+        log_msg(f"[OgrePreview] Render window created: {
+                self._render_window.getName()}")
         self._render_window.setActive(True)
         self._render_window.setAutoUpdated(False)
 
         # 4. RTShader + resources.
-        log_msg("[OgrePreview] Initialising ApplicationContext resources and RTShader...")
+        log_msg(
+            "[OgrePreview] Initialising ApplicationContext resources and RTShader..."
+        )
         self.locateResources()
         self.initialiseRTShaderSystem()
 
@@ -171,12 +184,13 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
         # 8. Viewport
         vp = self._render_window.addViewport(self._cam)
         vp.setBackgroundColour(Ogre.ColourValue(0.08, 0.08, 0.10))
-        
+
         # Explicitly set the scheme to RTShader scheme
         try:
             shadergen = RTShader.ShaderGenerator.getSingleton()
             vp.setMaterialScheme(RTShader.ShaderGenerator.DEFAULT_SCHEME_NAME)
-            log_msg(f"[OgrePreview] Viewport scheme set to: {RTShader.ShaderGenerator.DEFAULT_SCHEME_NAME}")
+            log_msg(f"[OgrePreview] Viewport scheme set to: {
+                    RTShader.ShaderGenerator.DEFAULT_SCHEME_NAME}")
         except Exception as e:
             log_msg(f"[OgrePreview] Warning: Failed to set viewport scheme: {e}")
 
@@ -186,16 +200,16 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
         """
         # 1. Base (loads from resources.cfg if it exists)
         super().locateResources()
-        
+
         _rgm = Ogre.ResourceGroupManager.getSingleton()
-        
+
         # 2. Add Ogre internal Media (CRITICAL for RTShader headers)
         try:
             possible_paths = []
-            if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
                 possible_paths.append(os.path.join(sys._MEIPASS, "Ogre", "Media"))
-                possible_paths.append(os.path.join(sys._MEIPASS, "Media")) 
-            
+                possible_paths.append(os.path.join(sys._MEIPASS, "Media"))
+
             ogre_spec = importlib.util.find_spec("Ogre")
             if ogre_spec and ogre_spec.origin:
                 ogre_pkg_dir = os.path.dirname(ogre_spec.origin)
@@ -206,9 +220,11 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
                 if os.path.exists(p):
                     ogre_media_dir = p
                     break
-            
+
             if ogre_media_dir:
-                log_msg(f"[OgrePreview] Registering Ogre Media folders into 'General' group...")
+                log_msg(
+                    "[OgrePreview] Registering Ogre Media folders into 'General' group..."
+                )
                 # Recursively add ALL subfolders of Media to 'General'
                 # Includes RTShaderLib, Main, Terrain, etc.
                 for root_dir, _, _ in os.walk(ogre_media_dir):
@@ -216,20 +232,26 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
                     # Too verbose for final log, but helpful for now
                     # log_msg(f"  + Added: {os.path.basename(root_dir)}")
             else:
-                log_msg(f"[OgrePreview] Warning: Ogre Media directory not found in {possible_paths}")
+                log_msg(
+                    f"[OgrePreview] Warning: Ogre Media directory not found in {possible_paths}"
+                )
         except Exception:
             import traceback
-            log_msg(f"[OgrePreview] Error in locateResources (Ogre Media):\n{traceback.format_exc()}")
+
+            log_msg(f"[OgrePreview] Error in locateResources (Ogre Media):\n{
+                    traceback.format_exc()}")
 
         # 3. Register project directory (for BZBase.material)
-        if getattr(sys, 'frozen', False):
-            _project_dir = getattr(sys, "_MEIPASS", APP_DIR)
+        if getattr(sys, "frozen", False):
+            _project_dir = sys._MEIPASS
         else:
             _project_dir = os.path.dirname(os.path.abspath(__file__))
 
         try:
             _rgm.addResourceLocation(_project_dir, "FileSystem", "General")
-            log_msg(f"[OgrePreview] Registered project dir in 'General': {_project_dir}")
+            log_msg(
+                f"[OgrePreview] Registered project dir in 'General': {_project_dir}"
+            )
         except Exception as e:
             log_msg(f"[OgrePreview] Warning: addResourceLocation(project) failed: {e}")
 
@@ -243,8 +265,15 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
     # Mesh loading / swapping
     # ------------------------------------------------------------------
     # Names of sibling/parent subdirectories to auto-scan for resources
-    _RESOURCE_DIRS = {"materials", "textures", "programs", "shaders",
-                      "fonts", "overlays", "packs"}
+    _RESOURCE_DIRS = {
+        "materials",
+        "textures",
+        "programs",
+        "shaders",
+        "fonts",
+        "overlays",
+        "packs",
+    }
 
     def _collect_resource_locations(self, mesh_dir: str) -> list:
         """
@@ -303,7 +332,10 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
                         # inside for resource-named subdirs
                         try:
                             for sub in os.scandir(entry.path):
-                                if sub.is_dir() and sub.name.lower() in self._RESOURCE_DIRS:
+                                if (
+                                    sub.is_dir()
+                                    and sub.name.lower() in self._RESOURCE_DIRS
+                                ):
                                     _add(sub.path)
                                     # One more level inside those too
                                     try:
@@ -318,7 +350,6 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
                 pass
 
         return locations
-
 
     def load_mesh(self, mesh_path: str):
         log_msg(f"[OgrePreview] Loading mesh: {mesh_path}")
@@ -360,7 +391,8 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
         self._mesh_node.attachObject(self._mesh_entity)
         log_msg(f"[OgrePreview] Mesh entity created: {file_name}")
 
-        # Apply materials programmatically — bypasses broken script import chains
+        # Apply materials programmatically — bypasses broken script import
+        # chains
         self._apply_programmatic_materials(self._mesh_entity, locations)
 
         # Auto-frame camera around mesh
@@ -414,14 +446,15 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
                             # so Ogre can actually load the file
                             try:
                                 rgm = Ogre.ResourceGroupManager.getSingleton()
-                                rgm.addResourceLocation(sub.path, "FileSystem", self._rg)
+                                rgm.addResourceLocation(
+                                    sub.path, "FileSystem", self._rg
+                                )
                             except Exception:
                                 pass
                             return result
             except OSError:
                 pass
         return None
-
 
     def _apply_programmatic_materials(self, entity, locations: list):
         """
@@ -445,12 +478,13 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
 
             # Find diffuse texture: try several common BZ Redux suffixes
             # Also try stripping trailing numbers (e.g. avtank00 -> avtank)
-            base_variants = [mat_name, mat_name.rstrip('0123456789')]
+            base_variants = [mat_name, mat_name.rstrip("0123456789")]
             suffixes = ["_a", "_A", "_d", "_D", "_diff", "_DIFF", ""]
-            
+
             diffuse_tex = None
             for bv in base_variants:
-                if not bv: continue
+                if not bv:
+                    continue
                 for s in suffixes:
                     diffuse_tex = self._find_texture(bv + s, locations)
                     if diffuse_tex:
@@ -483,20 +517,22 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
                 print(f"[OgrePreview] {mat_name} -> no texture found (grey)")
 
             mat.compile()
-            
+
             # Force RTShader to handle this material (CRITICAL for D3D11/GL3+)
             try:
                 shadergen = RTShader.ShaderGenerator.getSingleton()
                 # Use "DefaultLib" and "RTG_ShaderSystem"
-                shadergen.createShaderBasedTechnique(preview_mat_name, "DefaultLib", "RTShaderLib")
-                shadergen.validateMaterial("DefaultLib", preview_mat_name, mat.getGroup())
-            except Exception as e:
+                shadergen.createShaderBasedTechnique(
+                    preview_mat_name, "DefaultLib", "RTShaderLib"
+                )
+                shadergen.validateMaterial(
+                    "DefaultLib", preview_mat_name, mat.getGroup()
+                )
+            except Exception:
                 # log_msg(f"[OgrePreview] RTShader error for {preview_mat_name}: {e}")
                 pass
 
             sub.setMaterialName(preview_mat_name)
-
-
 
     def _clear_mesh(self):
         if self._mesh_node and self._scn_mgr:
@@ -532,6 +568,7 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
 # CTk widget: hosts Ogre context + mouse orbit/zoom/pan
 # ---------------------------------------------------------------------------
 
+
 class OgrePreviewFrame(ctk.CTkFrame):
     """Embeds an Ogre 3D viewport. Supports LMB-orbit, RMB-zoom, MMB-pan."""
 
@@ -542,12 +579,12 @@ class OgrePreviewFrame(ctk.CTkFrame):
         self._render_job = None
 
         # Camera orbit state
-        self._orbit_yaw   = 30.0   # degrees
-        self._orbit_pitch = 25.0   # degrees
-        self._orbit_dist  = 200.0
+        self._orbit_yaw = 30.0  # degrees
+        self._orbit_pitch = 25.0  # degrees
+        self._orbit_dist = 200.0
         self._orbit_target = [0.0, 0.0, 0.0]  # look-at point
-        self._mouse_prev  = None
-        self._drag_mode   = None   # 'orbit' | 'zoom' | 'pan'
+        self._mouse_prev = None
+        self._drag_mode = None  # 'orbit' | 'zoom' | 'pan'
 
         if not Ogre:
             lbl = ctk.CTkLabel(
@@ -583,16 +620,20 @@ class OgrePreviewFrame(ctk.CTkFrame):
         self._render_frame.bind("<Configure>", self._on_resize)
 
         # Mouse bindings
-        self._render_frame.bind("<ButtonPress-1>",   lambda e: self._drag_start(e, "orbit"))
-        self._render_frame.bind("<ButtonPress-3>",   lambda e: self._drag_start(e, "zoom"))
-        self._render_frame.bind("<ButtonPress-2>",   lambda e: self._drag_start(e, "pan"))
-        self._render_frame.bind("<B1-Motion>",       self._drag_move)
-        self._render_frame.bind("<B3-Motion>",       self._drag_move)
-        self._render_frame.bind("<B2-Motion>",       self._drag_move)
+        self._render_frame.bind(
+            "<ButtonPress-1>", lambda e: self._drag_start(e, "orbit")
+        )
+        self._render_frame.bind(
+            "<ButtonPress-3>", lambda e: self._drag_start(e, "zoom")
+        )
+        self._render_frame.bind("<ButtonPress-2>", lambda e: self._drag_start(e, "pan"))
+        self._render_frame.bind("<B1-Motion>", self._drag_move)
+        self._render_frame.bind("<B3-Motion>", self._drag_move)
+        self._render_frame.bind("<B2-Motion>", self._drag_move)
         self._render_frame.bind("<ButtonRelease-1>", self._drag_end)
         self._render_frame.bind("<ButtonRelease-3>", self._drag_end)
         self._render_frame.bind("<ButtonRelease-2>", self._drag_end)
-        self._render_frame.bind("<MouseWheel>",      self._mouse_wheel)
+        self._render_frame.bind("<MouseWheel>", self._mouse_wheel)
 
     # ------------------------------------------------------------------
     # Public API
@@ -611,6 +652,7 @@ class OgrePreviewFrame(ctk.CTkFrame):
                 self._apply_camera()
             except Exception as e:
                 import traceback
+
                 traceback.print_exc()
                 self._show_error(str(e))
 
@@ -625,10 +667,11 @@ class OgrePreviewFrame(ctk.CTkFrame):
             with open(LOG_FILE, "w") as f:
                 f.write("--- NEW PREVIEW SESSION ---\n")
                 f.flush()
-        except: pass
-        
+        except Exception:
+            pass
+
         log_msg("[OgrePreview] Starting Ogre context...")
-        self.update() # Ensure window is mapped
+        self.update()  # Ensure window is mapped
         hwnd = self._render_frame.winfo_id()
         w = max(200, self._render_frame.winfo_width())
         h = max(150, self._render_frame.winfo_height())
@@ -640,9 +683,10 @@ class OgrePreviewFrame(ctk.CTkFrame):
             ctx.initApp()
             log_msg("[OgrePreview] initApp() completed.")
             diam = ctx.load_mesh(mesh_path)
-            log_msg("[OgrePreview] load_mesh() completed.")
+            log_msg(f"[OgrePreview] load_mesh() completed. Diam: {diam}")
         except Exception as e:
             import traceback
+
             err_details = traceback.format_exc()
             log_msg(f"[OgrePreview] CRITICAL ERROR DURING INIT:\n{err_details}")
             try:
@@ -689,15 +733,15 @@ class OgrePreviewFrame(ctk.CTkFrame):
     # ------------------------------------------------------------------
 
     def _reset_camera(self, diam: float):
-        self._orbit_dist   = diam * 1.8
-        self._orbit_yaw    = 30.0
-        self._orbit_pitch  = 20.0
+        self._orbit_dist = diam * 1.8
+        self._orbit_yaw = 30.0
+        self._orbit_pitch = 20.0
         self._orbit_target = [0.0, 0.0, 0.0]
 
     def _apply_camera(self):
         if not self._ctx or not self._ctx._camnode:
             return
-        yaw_r   = math.radians(self._orbit_yaw)
+        yaw_r = math.radians(self._orbit_yaw)
         pitch_r = math.radians(self._orbit_pitch)
         d = self._orbit_dist
 
@@ -722,12 +766,12 @@ class OgrePreviewFrame(ctk.CTkFrame):
 
     def _drag_start(self, event, mode: str):
         self._mouse_prev = (event.x, event.y)
-        self._drag_mode  = mode
+        self._drag_mode = mode
         self._render_frame.focus_set()
 
     def _drag_end(self, event):
         self._mouse_prev = None
-        self._drag_mode  = None
+        self._drag_mode = None
 
     def _drag_move(self, event):
         if self._mouse_prev is None or not self._ctx:
@@ -737,27 +781,27 @@ class OgrePreviewFrame(ctk.CTkFrame):
         self._mouse_prev = (event.x, event.y)
 
         if self._drag_mode == "orbit":
-            self._orbit_yaw   -= dx * 0.5
+            self._orbit_yaw -= dx * 0.5
             self._orbit_pitch += dy * 0.5
-            self._orbit_pitch  = max(-89.0, min(89.0, self._orbit_pitch))
+            self._orbit_pitch = max(-89.0, min(89.0, self._orbit_pitch))
 
         elif self._drag_mode == "zoom":
             factor = 1.0 + dy * 0.005
             self._orbit_dist *= factor
-            self._orbit_dist  = max(0.01, self._orbit_dist)
+            self._orbit_dist = max(0.01, self._orbit_dist)
 
         elif self._drag_mode == "pan":
             # Pan in camera's local XY plane
-            yaw_r   = math.radians(self._orbit_yaw)
+            yaw_r = math.radians(self._orbit_yaw)
             pitch_r = math.radians(self._orbit_pitch)
-            scale   = self._orbit_dist * 0.002
+            scale = self._orbit_dist * 0.002
 
             # Camera right vector
-            right_x =  math.cos(yaw_r)
+            right_x = math.cos(yaw_r)
             right_z = -math.sin(yaw_r)
             # Camera up vector (approximate world-up projected onto view plane)
             up_x = -math.sin(pitch_r) * math.sin(yaw_r)
-            up_y =  math.cos(pitch_r)
+            up_y = math.cos(pitch_r)
             up_z = -math.sin(pitch_r) * math.cos(yaw_r)
 
             self._orbit_target[0] -= (dx * right_x - dy * up_x) * scale

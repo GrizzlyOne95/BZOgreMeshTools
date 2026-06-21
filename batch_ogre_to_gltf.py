@@ -1,14 +1,12 @@
+import OgreImport
 import os
 import sys
 
 import bpy
 
-
 this_dir = os.path.dirname(os.path.abspath(__file__))
 if this_dir not in sys.path:
     sys.path.append(this_dir)
-
-import OgreImport
 
 
 class DummyOperator:
@@ -139,12 +137,16 @@ def collect_jobs(input_path, output_dir):
 def main():
     argv = sys.argv
     if "--" not in argv:
-        print("Usage: blender -b -P batch_ogre_to_gltf.py -- <input_path> <output_dir> <OgreXMLConverter.exe>")
+        print(
+            "Usage: blender -b -P batch_ogre_to_gltf.py -- <input_path> <output_dir> <OgreXMLConverter.exe>"
+        )
         return 1
-    argv = argv[argv.index("--") + 1:]
+    argv = argv[argv.index("--") + 1 :]
 
     if len(argv) < 3:
-        print("Usage: blender -b -P batch_ogre_to_gltf.py -- <input_path> <output_dir> <OgreXMLConverter.exe>")
+        print(
+            "Usage: blender -b -P batch_ogre_to_gltf.py -- <input_path> <output_dir> <OgreXMLConverter.exe>"
+        )
         return 1
 
     input_path = os.path.abspath(argv[0])
