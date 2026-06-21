@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 import math
 import sys
 import os
-from collections import defaultdict
+
 
 class Vector3:
     def __init__(self, x=0.0, y=0.0, z=0.0):

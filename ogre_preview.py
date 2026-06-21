@@ -14,7 +14,6 @@ Strategy:
 import os
 import math
 import tkinter as tk
-from tkinter import messagebox
 import customtkinter as ctk
 import importlib.util
 
@@ -32,11 +31,11 @@ import sys
 
 # In PyInstaller, we want the log next to the EXE, not in the temp _MEIPASS dir
 if getattr(sys, "frozen", False):
-    _log_dir = os.path.dirname(sys.executable)
+    APP_DIR = os.path.dirname(sys.executable)
 else:
-    _log_dir = os.path.dirname(os.path.abspath(__file__))
+    APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
-LOG_FILE = os.path.join(_log_dir, "OgrePreview.log")
+LOG_FILE = os.path.join(APP_DIR, "OgrePreview.log")
 
 def log_msg(msg):
     try:
@@ -105,12 +104,12 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
             log_msg(f"[OgrePreview] Fallback selected: {renderers[0].getName()}")
 
         # 2. Initialise Root — no auto-window
-        log_msg(f"[OgrePreview] Initialising Root...")
+        log_msg("[OgrePreview] Initialising Root...")
         root.initialise(False)
         log_msg("[OgrePreview] Root initialised.")
 
         # 3. Create render window embedded in our Tk frame.
-        log_msg(f"[OgrePreview] Creating render window (HWND: {self._hwnd}, Size: {self._width}x{self._height})...")
+        log_msg("[OgrePreview] Creating render window...")
         params = Ogre.NameValueMap()
         params["externalWindowHandle"] = str(self._hwnd)
         params["FSAA"] = "0"
@@ -224,10 +223,10 @@ class _EmbeddedOgreContext(OgreBites.ApplicationContext if OgreBites else object
 
         # 3. Register project directory (for BZBase.material)
         if getattr(sys, 'frozen', False):
-            _project_dir = sys._MEIPASS
+            _project_dir = getattr(sys, "_MEIPASS", APP_DIR)
         else:
             _project_dir = os.path.dirname(os.path.abspath(__file__))
-            
+
         try:
             _rgm.addResourceLocation(_project_dir, "FileSystem", "General")
             log_msg(f"[OgrePreview] Registered project dir in 'General': {_project_dir}")
@@ -611,7 +610,8 @@ class OgrePreviewFrame(ctk.CTkFrame):
                 self._reset_camera(diam)
                 self._apply_camera()
             except Exception as e:
-                import traceback; traceback.print_exc()
+                import traceback
+                traceback.print_exc()
                 self._show_error(str(e))
 
     # ------------------------------------------------------------------
@@ -640,7 +640,7 @@ class OgrePreviewFrame(ctk.CTkFrame):
             ctx.initApp()
             log_msg("[OgrePreview] initApp() completed.")
             diam = ctx.load_mesh(mesh_path)
-            log_msg(f"[OgrePreview] load_mesh() completed. Diam: {diam}")
+            log_msg("[OgrePreview] load_mesh() completed.")
         except Exception as e:
             import traceback
             err_details = traceback.format_exc()
