@@ -44,7 +44,7 @@ import os
 import subprocess
 
 __author__ = "someone, Ssamedog, Kindrad"
-__version__ = "2024/8/21"
+__version__ = "2025/03/06"
 
 __bpydoc__ = """\
 This script imports/exports Kenshi Ogre models into/from Blender.
@@ -111,7 +111,7 @@ bl_info = {
     "name": "Kenshi_IO_Continued (2024.8.21)",
     "author": "someone, samedog, Kindrad",
     "blender": (3, 6, 0),
-    "version": (2024, 8, 21),
+    "version": (1, 3, 0),
     "location": "File > Import-Export",
     "description": (
         "Import-Export Kenshi Model files, and export Kenshi collision files. (This is community version by Kindrad)"
